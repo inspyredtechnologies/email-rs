@@ -8,6 +8,7 @@ mod app;
 mod backend;
 mod calendar;
 mod demo;
+mod dpapi;
 mod graph;
 mod html;
 mod ics;

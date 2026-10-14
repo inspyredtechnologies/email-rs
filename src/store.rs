@@ -1,5 +1,5 @@
 //! Local persistence: account list, per-folder header cache, message bodies,
-//! and passwords (Windows Credential Manager via `keyring`).
+//! and secrets (passwords and OAuth refresh tokens, encrypted with Windows DPAPI).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,20 +41,43 @@ pub fn save_accounts(accounts: &[AccountConfig]) {
     write_json(&data_dir().join("accounts.json"), &accounts);
 }
 
-pub fn set_password(account_id: &str, password: &str) -> Result<(), String> {
-    keyring::Entry::new(KEYRING_SERVICE, account_id)
-        .and_then(|e| e.set_password(password))
-        .map_err(|e| format!("Could not save the password: {e}"))
+// Secrets are encrypted with Windows DPAPI for the current user and kept in the
+// data folder, as Microsoft's MSAL does for its token cache. Windows Credential
+// Manager can't hold them: it caps a secret at 2560 bytes, and Microsoft 365
+// refresh tokens are longer. Secrets saved there by older versions are still read.
+
+fn secret_path(key: &str) -> PathBuf {
+    data_dir().join("secrets").join(format!("{}.bin", folder_key(key)))
 }
 
-pub fn get_password(account_id: &str) -> Result<String, String> {
-    keyring::Entry::new(KEYRING_SERVICE, account_id)
+pub fn set_password(key: &str, secret: &str) -> Result<(), String> {
+    let sealed = crate::dpapi::protect(secret.as_bytes()).map_err(|e| format!("Could not save the password: {e}"))?;
+    let path = secret_path(key);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("Could not save the password: {e}"))?;
+    }
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, sealed).and_then(|_| fs::rename(&tmp, &path)).map_err(|e| format!("Could not save the password: {e}"))?;
+    // Drop any copy an older version left in Credential Manager.
+    if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, key) {
+        let _ = e.delete_credential();
+    }
+    Ok(())
+}
+
+pub fn get_password(key: &str) -> Result<String, String> {
+    if let Ok(sealed) = fs::read(secret_path(key)) {
+        let bytes = crate::dpapi::unprotect(&sealed)?;
+        return String::from_utf8(bytes).map_err(|_| "The saved password is damaged; sign in again.".to_string());
+    }
+    keyring::Entry::new(KEYRING_SERVICE, key)
         .and_then(|e| e.get_password())
         .map_err(|e| format!("No saved password: {e}"))
 }
 
-pub fn delete_password(account_id: &str) {
-    if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, account_id) {
+pub fn delete_password(key: &str) {
+    let _ = fs::remove_file(secret_path(key));
+    if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, key) {
         let _ = e.delete_credential();
     }
 }
@@ -127,4 +150,21 @@ pub fn save_body(account_id: &str, folder: &str, uid_validity: u32, uid: u32, ra
 
 pub fn delete_body(account_id: &str, folder: &str, uid_validity: u32, uid: u32) {
     let _ = fs::remove_file(body_path(account_id, folder, uid_validity, uid));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stores_secrets_longer_than_credential_manager_allows() {
+        let key = format!("test-{}", std::process::id());
+        let token: String = (0..4000).map(|i| char::from(b'a' + (i % 26) as u8)).collect();
+        set_password(&key, &token).unwrap();
+        assert_eq!(get_password(&key).unwrap(), token);
+        let on_disk = fs::read(secret_path(&key)).unwrap();
+        assert!(!String::from_utf8_lossy(&on_disk).contains(&token[..32]), "encrypted at rest");
+        delete_password(&key);
+        assert!(get_password(&key).is_err());
+    }
 }

@@ -38,7 +38,7 @@ This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. T
   - On a Microsoft calendar, the response goes through Graph.
   - Otherwise it's emailed to the organizer as a standard iCalendar reply (iMIP) and the meeting is added to the local calendar. Cancellations offer "Remove from Calendar".
   - Meetings you organize on the local calendar email iCalendar invitations, updates and cancellations to attendees.
-- **Accounts:** Add Account picks the account type from your email domain. It has presets for Gmail, Yahoo, iCloud, Fastmail and AOL, and tests the connection before saving. Microsoft and Google sign-in use OAuth 2.0 in your browser, so Outlook RS never sees those passwords. Passwords and refresh tokens are stored in Windows Credential Manager.
+- **Accounts:** Add Account picks the account type from your email domain. It has presets for Gmail, Yahoo, iCloud, Fastmail and AOL, and tests the connection before saving. Microsoft and Google sign-in use OAuth 2.0 in your browser, so Outlook RS never sees those passwords. Passwords and refresh tokens are encrypted with Windows DPAPI so only your Windows account can read them, and kept in `%APPDATA%\OutlookRs\data\secrets`.
 - **Shortcuts:**
 
   | Keys | Action |
@@ -101,7 +101,7 @@ To build client IDs in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT
 | `src/calendar.rs`, `src/ics.rs`, `src/graph.rs` | Calendar events and storage, iCalendar invites (with VTIMEZONE), Microsoft Graph calendar API |
 | `src/ui/calendar.rs`, `src/ui/appointment.rs`, `src/app/calendar_actions.rs` | Calendar views, the appointment window, and invite / sync logic |
 | `src/oauth.rs` | Microsoft/Google OAuth: PKCE, loopback redirect, token refresh, XOAUTH2 |
-| `src/store.rs` | Cache in `%APPDATA%\OutlookRs\data`, Credential Manager passwords |
+| `src/store.rs`, `src/dpapi.rs` | Cache in `%APPDATA%\OutlookRs\data`; DPAPI-encrypted passwords and tokens |
 | `assets/`, `build.rs` | App icon (`make-icon.py` regenerates `icon.ico` / `icon.png` with Pillow), embedded into the exe at build time |
 
 `cargo test` runs the unit tests (`cargo test -- --ignored` adds checks against Microsoft's live sign-in, Graph and Exchange endpoints). To capture the window to a PNG and exit, run `outlook-rs --demo --screenshot out.png`.
