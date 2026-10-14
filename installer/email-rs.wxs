@@ -1,17 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Windows Installer package for Outlook RS (WiX Toolset v5).
+  Windows Installer package for E-Mail RS (WiX Toolset v5).
+  The product was called Outlook RS before; the same UpgradeCode makes this
+  package replace those installs.
   Build with installer\build-msi.ps1, which passes Version and ExePath.
   UpgradeCode must never change: it lets new versions replace old ones.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Outlook RS"
-           Manufacturer="Outlook RS"
+  <Package Name="E-Mail RS"
+           Manufacturer="E-Mail RS"
            Version="$(var.Version)"
            UpgradeCode="24F3B918-3448-4023-8D93-82FA6F23ADB8"
            Scope="perMachine"
            Compressed="yes">
-    <SummaryInformation Description="Outlook RS - Outlook Classic-style mail and calendar client" />
+    <SummaryInformation Description="E-Mail RS - desktop mail and calendar client" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -19,18 +21,18 @@
     <!-- The exe carries the icon used for the shortcut and Apps & features. -->
     <Icon Id="AppIcon.exe" SourceFile="$(var.ExePath)" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/inspyredtechnologies/outlook-rs" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/inspyredtechnologies/email-rs" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Outlook RS" />
+      <Directory Id="INSTALLFOLDER" Name="E-Mail RS" />
     </StandardDirectory>
 
-    <Feature Id="Main" Title="Outlook RS">
+    <Feature Id="Main" Title="E-Mail RS">
       <Component Directory="INSTALLFOLDER">
-        <File Id="OutlookRsExe" Source="$(var.ExePath)" Name="outlook-rs.exe" KeyPath="yes">
+        <File Id="AppExe" Source="$(var.ExePath)" Name="email-rs.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut"
                     Directory="ProgramMenuFolder"
-                    Name="Outlook RS"
+                    Name="E-Mail RS"
                     Description="Mail and calendar"
                     WorkingDirectory="INSTALLFOLDER"
                     Icon="AppIcon.exe"

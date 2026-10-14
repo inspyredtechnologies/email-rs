@@ -1301,6 +1301,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "email-rs"
+version = "0.1.4"
+dependencies = [
+ "base64 0.23.1",
+ "chrono",
+ "chrono-tz",
+ "directories",
+ "eframe",
+ "getrandom 0.4.3",
+ "html2text",
+ "iana-time-zone",
+ "imap",
+ "keyring",
+ "lettre",
+ "mail-parser",
+ "native-tls",
+ "open",
+ "png",
+ "rfd",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "ureq",
+ "windows-sys 0.61.2",
+ "winresource",
+ "wry",
+]
+
+[[package]]
 name = "email_address"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3358,36 +3388,6 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
-]
-
-[[package]]
-name = "outlook-rs"
-version = "0.1.4"
-dependencies = [
- "base64 0.23.1",
- "chrono",
- "chrono-tz",
- "directories",
- "eframe",
- "getrandom 0.4.3",
- "html2text",
- "iana-time-zone",
- "imap",
- "keyring",
- "lettre",
- "mail-parser",
- "native-tls",
- "open",
- "png",
- "rfd",
- "roxmltree",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "ureq",
- "windows-sys 0.61.2",
- "winresource",
- "wry",
 ]
 
 [[package]]

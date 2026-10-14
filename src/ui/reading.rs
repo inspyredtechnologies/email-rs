@@ -201,7 +201,7 @@ fn pictures_infobar(app: &mut App, ui: &mut Ui) {
                 egui::Label::new(
                     RichText::new(
                         "Click here to download pictures. To help protect your privacy, \
-                         Outlook RS prevented automatic download of some pictures in this message.",
+                         E-Mail RS prevented automatic download of some pictures in this message.",
                     )
                     .small(),
                 )

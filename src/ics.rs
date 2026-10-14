@@ -385,7 +385,7 @@ pub struct EventSpec<'a> {
 pub fn write(method: &str, e: &EventSpec) -> String {
     let mut lines = vec![
         "BEGIN:VCALENDAR".to_string(),
-        "PRODID:-//Outlook RS//EN".into(),
+        "PRODID:-//E-Mail RS//EN".into(),
         "VERSION:2.0".into(),
         format!("METHOD:{method}"),
         "BEGIN:VEVENT".into(),

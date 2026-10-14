@@ -77,7 +77,7 @@ pub struct Client {
 impl Client {
     /// `credentials` = (user, password); the user may be `DOMAIN\user`, a UPN or an email address.
     pub fn new(credentials: Option<(&str, &str)>, timeout_secs: i32) -> Res<Self> {
-        let agent = wide("Outlook RS");
+        let agent = wide("E-Mail RS");
         let session = Handle(unsafe { WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, null(), null(), 0) });
         if session.0.is_null() {
             return Err(last_error("Couldn't start WinHTTP"));

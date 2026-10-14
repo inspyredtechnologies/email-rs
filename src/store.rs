@@ -8,12 +8,49 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{AccountConfig, Folder, MessageMeta};
 
+/// Credential Manager service used by versions before secrets moved to DPAPI
+/// (when the app was called Outlook RS); only read as a fallback.
 const KEYRING_SERVICE: &str = "outlook-rs";
 
+fn project_data_dir(name: &str) -> Option<PathBuf> {
+    directories::ProjectDirs::from("", "", name).map(|d| d.data_dir().to_path_buf())
+}
+
 pub fn data_dir() -> PathBuf {
-    directories::ProjectDirs::from("", "", "OutlookRs")
-        .map(|d| d.data_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("OutlookRs-data"))
+    project_data_dir("EmailRs").unwrap_or_else(|| PathBuf::from("EmailRs-data"))
+}
+
+/// The app was called Outlook RS before: move that data folder (accounts, cache,
+/// encrypted sign-ins) to the new location once, so upgrades keep their accounts.
+pub fn migrate_legacy_data() {
+    if let Some(old) = project_data_dir("OutlookRs") {
+        let new = data_dir();
+        if old.exists() && !new.join("accounts.json").exists() {
+            let _ = merge_move(&old, &new);
+            // Remove the emptied legacy folders (only succeeds when empty).
+            let _ = fs::remove_dir(&old);
+            if let Some(parent) = old.parent() {
+                let _ = fs::remove_dir(parent);
+            }
+        }
+    }
+}
+
+/// Move everything in `from` into `to`. Where both have a folder, merge it;
+/// where both have a file, the one already in `to` wins.
+fn merge_move(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if !target.exists() {
+            fs::rename(entry.path(), &target)?;
+        } else if entry.file_type()?.is_dir() && target.is_dir() {
+            merge_move(&entry.path(), &target)?;
+            let _ = fs::remove_dir(entry.path());
+        }
+    }
+    Ok(())
 }
 
 fn write_json<T: Serialize>(path: &Path, value: &T) {
@@ -155,6 +192,28 @@ pub fn delete_body(account_id: &str, folder: &str, uid_validity: u32, uid: u32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merges_legacy_folder_into_new_one() {
+        let base = std::env::temp_dir().join(format!("emailrs-migrate-{}", std::process::id()));
+        let (old, new) = (base.join("OutlookRs").join("data"), base.join("EmailRs").join("data"));
+        fs::create_dir_all(old.join("secrets")).unwrap();
+        fs::create_dir_all(old.join("cache").join("acct-1")).unwrap();
+        fs::write(old.join("accounts.json"), "[old]").unwrap();
+        fs::write(old.join("secrets").join("acct-1.bin"), "sealed").unwrap();
+        fs::write(old.join("cache").join("acct-1").join("folders.json"), "f").unwrap();
+        // The new folder already exists (e.g. created by a test) with an unrelated file.
+        fs::create_dir_all(new.join("secrets")).unwrap();
+        fs::write(new.join("secrets").join("other.bin"), "keep").unwrap();
+
+        merge_move(&old, &new).unwrap();
+        assert_eq!(fs::read_to_string(new.join("accounts.json")).unwrap(), "[old]");
+        assert_eq!(fs::read_to_string(new.join("secrets").join("acct-1.bin")).unwrap(), "sealed");
+        assert_eq!(fs::read_to_string(new.join("secrets").join("other.bin")).unwrap(), "keep");
+        assert!(new.join("cache").join("acct-1").join("folders.json").exists());
+        assert!(!old.join("accounts.json").exists());
+        let _ = fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn stores_secrets_longer_than_credential_manager_allows() {

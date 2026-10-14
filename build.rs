@@ -8,8 +8,8 @@ fn main() {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/icon.ico");
         // Task Manager and "Open with" show FileDescription as the app name.
-        res.set("FileDescription", "Outlook RS");
-        res.set("ProductName", "Outlook RS");
+        res.set("FileDescription", "E-Mail RS");
+        res.set("ProductName", "E-Mail RS");
         res.compile().expect("embedding the Windows icon resource (needs rc.exe from the Windows SDK)");
     }
 }

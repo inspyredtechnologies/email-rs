@@ -290,7 +290,7 @@ pub fn build_message(account: &AccountConfig, draft: &Draft, keep_bcc: bool) -> 
     let mut any_recipient = false;
     for (field, kind) in [(&draft.to, 0), (&draft.cc, 1), (&draft.bcc, 2)] {
         for r in split_recipients(field) {
-            let mbox = r.parse().map_err(|_| format!("Outlook does not recognize \"{r}\"."))?;
+            let mbox = r.parse().map_err(|_| format!("E-Mail RS doesn't recognize \"{r}\" as an email address."))?;
             any_recipient = true;
             builder = match kind {
                 0 => builder.to(mbox),

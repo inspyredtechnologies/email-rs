@@ -71,8 +71,8 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
 fn update_title(app: &App, ctx: &egui::Context) {
     let folder = app.current_folder().map(|f| f.display_name()).unwrap_or_else(|| "Inbox".into());
     let title = match app.current_account() {
-        Some(a) => format!("{folder} - {} - Outlook RS", a.config.email),
-        None => "Outlook RS".to_string(),
+        Some(a) => format!("{folder} - {} - E-Mail RS", a.config.email),
+        None => "E-Mail RS".to_string(),
     };
     let id = egui::Id::new("window_title");
     if ctx.data(|d| d.get_temp::<String>(id)).as_deref() != Some(title.as_str()) {
@@ -150,7 +150,7 @@ pub fn show_alert(app: &mut App, ctx: &egui::Context) {
     let Some(text) = app.alert.clone() else { return };
     let modal = egui::Modal::new(egui::Id::new("alert")).show(ctx, |ui| {
         ui.set_max_width(420.0);
-        ui.label(theme::bold("Outlook RS", 15.0));
+        ui.label(theme::bold("E-Mail RS", 15.0));
         ui.add_space(6.0);
         ui.label(text);
         ui.add_space(10.0);

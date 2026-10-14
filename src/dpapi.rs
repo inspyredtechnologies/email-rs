@@ -7,6 +7,7 @@ use windows_sys::Win32::Foundation::LocalFree;
 use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData};
 
 /// Extra entropy so other programs can't decrypt our blobs with a bare CryptUnprotectData call.
+/// Keeps the app's original name: changing it would make every saved sign-in unreadable.
 const ENTROPY: &[u8] = b"Outlook RS secret v1";
 
 fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {

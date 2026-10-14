@@ -69,17 +69,17 @@ fn read_client_file() -> ClientFile {
     std::fs::read(client_file_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-/// Outlook RS's own Microsoft Entra app registration (multi-tenant + personal
+/// E-Mail RS's own Microsoft Entra app registration (multi-tenant + personal
 /// accounts, public client, redirect `http://localhost`). A client ID isn't a
-/// secret; desktop apps ship theirs. Override with `OUTLOOK_RS_MS_CLIENT_ID` at build time.
+/// secret; desktop apps ship theirs. Override with `EMAIL_RS_MS_CLIENT_ID` at build time.
 const MS_CLIENT_ID: &str = "3d431ce5-1cc0-4e61-8696-7e88a14e62ef";
 
-/// The client registration built into the app (`OUTLOOK_RS_MS_CLIENT_ID`,
-/// `OUTLOOK_RS_GOOGLE_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT_SECRET` at build time), if any.
+/// The client registration built into the app (`EMAIL_RS_MS_CLIENT_ID`,
+/// `EMAIL_RS_GOOGLE_CLIENT_ID`, `EMAIL_RS_GOOGLE_CLIENT_SECRET` at build time), if any.
 pub fn builtin_client(method: AuthMethod) -> Option<ClientConfig> {
     let (id, secret) = match method {
-        AuthMethod::Microsoft => (option_env!("OUTLOOK_RS_MS_CLIENT_ID").or(Some(MS_CLIENT_ID)), None),
-        AuthMethod::Google => (option_env!("OUTLOOK_RS_GOOGLE_CLIENT_ID"), option_env!("OUTLOOK_RS_GOOGLE_CLIENT_SECRET")),
+        AuthMethod::Microsoft => (option_env!("EMAIL_RS_MS_CLIENT_ID").or(Some(MS_CLIENT_ID)), None),
+        AuthMethod::Google => (option_env!("EMAIL_RS_GOOGLE_CLIENT_ID"), option_env!("EMAIL_RS_GOOGLE_CLIENT_SECRET")),
         AuthMethod::Password => (None, None),
     };
     let id = id.map(str::trim).filter(|s| !s.is_empty())?;
@@ -202,10 +202,10 @@ fn authorize_url(p: &Provider, client: &ClientConfig, redirect: &str, state: &st
     format!("{}?{}", p.authorize_url, query.join("&"))
 }
 
-const DONE_PAGE: &str = "<!doctype html><html><head><meta charset=utf-8><title>Outlook RS</title></head>\
+const DONE_PAGE: &str = "<!doctype html><html><head><meta charset=utf-8><title>E-Mail RS</title></head>\
 <body style=\"font-family:Segoe UI,sans-serif;padding:48px;color:#262626\">\
 <h2 style=\"color:#0072C6;font-weight:400\">You're signed in</h2>\
-<p>You can close this tab and return to Outlook RS.</p></body></html>";
+<p>You can close this tab and return to E-Mail RS.</p></body></html>";
 
 /// Wait on the loopback listener for the browser redirect carrying `code`.
 fn wait_for_code(listener: &TcpListener, state: &str, cancel: &AtomicBool) -> Result<String, String> {
@@ -240,7 +240,7 @@ fn wait_for_code(listener: &TcpListener, state: &str, cancel: &AtomicBool) -> Re
             continue;
         }
         let (status, body) = match get("error") {
-            Some(_) => ("400 Bad Request", "<p>Sign-in failed. Return to Outlook RS for details.</p>"),
+            Some(_) => ("400 Bad Request", "<p>Sign-in failed. Return to E-Mail RS for details.</p>"),
             None => ("200 OK", DONE_PAGE),
         };
         let _ = write!(

@@ -4,7 +4,7 @@
 #   dotnet tool install --global wix --version 5.0.2
 #
 # Optional: bake OAuth client IDs into the build (see README) by setting
-# OUTLOOK_RS_MS_CLIENT_ID / OUTLOOK_RS_GOOGLE_CLIENT_ID / OUTLOOK_RS_GOOGLE_CLIENT_SECRET first.
+# EMAIL_RS_MS_CLIENT_ID / EMAIL_RS_GOOGLE_CLIENT_ID / EMAIL_RS_GOOGLE_CLIENT_SECRET first.
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -24,11 +24,11 @@ $msiVersion = ($version -split '[-+]')[0]
 cargo build --release
 if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 
-$out = Join-Path $root "target\wix\OutlookRS-$msiVersion-x64.msi"
+$out = Join-Path $root "target\wix\EmailRS-$msiVersion-x64.msi"
 New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
-wix build installer\outlook-rs.wxs -arch x64 `
+wix build installer\email-rs.wxs -arch x64 `
     -d "Version=$msiVersion" `
-    -d "ExePath=$root\target\release\outlook-rs.exe" `
+    -d "ExePath=$root\target\release\email-rs.exe" `
     -o $out
 if ($LASTEXITCODE -ne 0) { throw 'wix build failed' }
 

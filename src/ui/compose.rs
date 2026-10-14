@@ -214,7 +214,7 @@ fn window(c: &mut Composer, accounts: &[(String, String)], ui: &mut Ui) -> bool 
     if c.confirm_discard {
         let modal = egui::Modal::new(egui::Id::new(("discard", c.id))).show(ui.ctx(), |ui| {
             ui.set_max_width(360.0);
-            ui.label(theme::bold("Outlook RS", 15.0));
+            ui.label(theme::bold("E-Mail RS", 15.0));
             ui.add_space(6.0);
             ui.label("Discard this message? Your changes will be lost.");
             ui.add_space(10.0);

@@ -1,6 +1,6 @@
 //! A WebView2 child window laid over the reading pane to render HTML mail.
 //!
-//! Content is served from a custom `outlookrs://` protocol (no size limit, no
+//! Content is served from a custom `emailrs://` protocol (no size limit, no
 //! network), JavaScript is disabled, and any navigation away from the message
 //! is cancelled: web links open in the default browser, `mailto:` links are
 //! handed back to the app to open a compose window.
@@ -13,8 +13,8 @@ use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::http::{Response, header::CONTENT_TYPE};
 use wry::{NewWindowResponse, Rect, WebContext, WebView, WebViewBuilder};
 
-/// On Windows, wry maps custom protocol `outlookrs` to this origin.
-const ORIGIN: &str = "http://outlookrs.localhost/";
+/// On Windows, wry maps custom protocol `emailrs` to this origin.
+const ORIGIN: &str = "http://emailrs.localhost/";
 
 pub struct HtmlView {
     webview: WebView,
@@ -54,7 +54,7 @@ impl HtmlView {
             .with_focused(false)
             .with_visible(false)
             .with_background_color((255, 255, 255, 255))
-            .with_custom_protocol("outlookrs".into(), move |_id, request| {
+            .with_custom_protocol("emailrs".into(), move |_id, request| {
                 let body = if request.uri().path().starts_with("/msg/") { served.lock().unwrap().clone() } else { Vec::new() };
                 let status = if body.is_empty() { 404 } else { 200 };
                 Response::builder()

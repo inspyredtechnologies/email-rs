@@ -279,7 +279,7 @@ fn window(ed: &mut Editor, calendars: &[(String, String)], ui: &mut Ui, actions:
         let what = if ed.meeting && ed.event.response == Response::Organizer { "Cancel this meeting and notify attendees?" } else { "Delete this item?" };
         let modal = egui::Modal::new(egui::Id::new(("appt_delete", ed.id))).show(ui.ctx(), |ui| {
             ui.set_max_width(360.0);
-            ui.label(theme::bold("Outlook RS", 15.0));
+            ui.label(theme::bold("E-Mail RS", 15.0));
             ui.add_space(6.0);
             ui.label(what);
             ui.add_space(10.0);

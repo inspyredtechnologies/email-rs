@@ -1,4 +1,4 @@
-"""Draws the Outlook RS app icon: a blue tile with an envelope and a calendar badge.
+"""Draws the E-Mail RS app icon: a blue tile with an envelope and a calendar badge.
 
 Writes assets/icon.ico (16-256 px) and assets/icon.png (256 px). Requires Pillow.
 Run: python assets/make-icon.py

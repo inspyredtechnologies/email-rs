@@ -1,6 +1,8 @@
-# Outlook RS
+# E-Mail RS
 
-A clean-room re-creation of **Outlook Classic's mail experience** in Rust (egui/eframe).
+A desktop mail and calendar client in Rust (egui/eframe), with the familiar layout of classic desktop email clients such as Outlook Classic.
+
+E-Mail RS was previously called Outlook RS. It isn't affiliated with or endorsed by Microsoft.
 It copies how Outlook looks and behaves; it does not contain or decompile any Microsoft code.
 
 ## Run
@@ -18,7 +20,7 @@ You need the WiX Toolset v5 (`dotnet tool install --global wix --version 5.0.2`)
 powershell -ExecutionPolicy Bypass -File installer/build-msi.ps1
 ```
 
-This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. The MSI installs per-machine to `Program Files\Outlook RS`, adds a Start menu shortcut and an Apps & features entry, and upgrades older versions in place. It's unsigned, so Windows SmartScreen will warn on first run. Set the `OUTLOOK_RS_GOOGLE_*` client variables before building to build in Google sign-in. Microsoft sign-in is already built in.
+This builds a release exe and writes `target\wix\EmailRS-<version>-x64.msi`. The MSI installs per-machine to `Program Files\E-Mail RS`, adds a Start menu shortcut and an Apps & features entry, and upgrades older versions in place, including installs from when the app was called Outlook RS. Your accounts move over automatically from `%APPDATA%\OutlookRs` on first start. It's unsigned, so Windows SmartScreen will warn on first run. Set the `EMAIL_RS_GOOGLE_*` client variables before building to build in Google sign-in. Microsoft sign-in is already built in.
 
 ## What works
 
@@ -38,7 +40,7 @@ This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. T
   - On a Microsoft calendar, the response goes through Graph.
   - Otherwise it's emailed to the organizer as a standard iCalendar reply (iMIP) and the meeting is added to the local calendar. Cancellations offer "Remove from Calendar".
   - Meetings you organize on the local calendar email iCalendar invitations, updates and cancellations to attendees.
-- **Accounts:** Add Account picks the account type from your email domain. It has presets for Gmail, Yahoo, iCloud, Fastmail and AOL, and tests the connection before saving. Microsoft and Google sign-in use OAuth 2.0 in your browser, so Outlook RS never sees those passwords. Passwords and refresh tokens are encrypted with Windows DPAPI so only your Windows account can read them, and kept in `%APPDATA%\OutlookRs\data\secrets`.
+- **Accounts:** Add Account picks the account type from your email domain. It has presets for Gmail, Yahoo, iCloud, Fastmail and AOL, and tests the connection before saving. Microsoft and Google sign-in use OAuth 2.0 in your browser, so E-Mail RS never sees those passwords. Passwords and refresh tokens are encrypted with Windows DPAPI so only your Windows account can read them, and kept in `%APPDATA%\EmailRs\data\secrets`.
 - **Shortcuts:**
 
   | Keys | Action |
@@ -56,9 +58,9 @@ This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. T
 
 ## Microsoft and Google sign-in
 
-**Microsoft (Outlook.com, Hotmail, Microsoft 365 / Exchange Online)** works out of the box. Outlook RS ships with its own multi-tenant Entra app registration (client ID `3d431ce5-1cc0-4e61-8696-7e88a14e62ef`), so users just click *Sign in with Microsoft*. An organization that restricts user consent needs its admin to approve Outlook RS once, at `https://login.microsoftonline.com/<tenant-domain>/adminconsent?client_id=3d431ce5-1cc0-4e61-8696-7e88a14e62ef`.
+**Microsoft (Outlook.com, Hotmail, Microsoft 365 / Exchange Online)** works out of the box. E-Mail RS ships with its own multi-tenant Entra app registration (client ID `3d431ce5-1cc0-4e61-8696-7e88a14e62ef`), so users just click *Sign in with Microsoft*. An organization that restricts user consent needs its admin to approve E-Mail RS once, at `https://login.microsoftonline.com/<tenant-domain>/adminconsent?client_id=3d431ce5-1cc0-4e61-8696-7e88a14e62ef`.
 
-To use your own registration instead (for example in a fork), build with `OUTLOOK_RS_MS_CLIENT_ID` set. The registration must be set up like this:
+To use your own registration instead (for example in a fork), build with `EMAIL_RS_MS_CLIENT_ID` set. The registration must be set up like this:
 
 1. Go to [entra.microsoft.com](https://entra.microsoft.com) > **App registrations** > **New registration**.
 2. For supported account types, choose **Accounts in any organizational directory and personal Microsoft accounts**.
@@ -67,7 +69,7 @@ To use your own registration instead (for example in a fork), build with `OUTLOO
 5. Under **API permissions**, add *Microsoft Graph* > Delegated > `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite` and `offline_access`. That's all the "Microsoft 365 / Outlook.com" account type needs. Your organization's admin may need to grant consent once.
 6. Only for Microsoft accounts set up as "IMAP / SMTP": also add `IMAP.AccessAsUser.All` and `SMTP.Send`, and have the admin enable IMAP and Authenticated SMTP for the mailbox. For the calendar on such an account, "Connect this calendar..." under My Calendars runs a one-time extra sign-in if needed.
 
-**Google (Gmail, Google Workspace)** needs your own OAuth client: there isn't one built in. In builds without a built-in client ID, Add Account shows a Client ID field and saves the value in `%APPDATA%\OutlookRs\data\oauth.json`.
+**Google (Gmail, Google Workspace)** needs your own OAuth client: there isn't one built in. In builds without a built-in client ID, Add Account shows a Client ID field and saves the value in `%APPDATA%\EmailRs\data\oauth.json`.
 
 1. In [console.cloud.google.com](https://console.cloud.google.com), create a project and configure the **OAuth consent screen** (External, Testing). Add yourself as a test user.
 2. Go to **Credentials** > **Create credentials** > **OAuth client ID** > **Desktop app**.
@@ -75,7 +77,7 @@ To use your own registration instead (for example in a fork), build with `OUTLOO
 
 While the Google project is in Testing, Google expires its sign-ins after 7 days. Without OAuth, Gmail still works with an app password.
 
-To build client IDs in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT_ID` and `OUTLOOK_RS_GOOGLE_CLIENT_SECRET` when running `cargo build`. Users of such a build never see a Client ID field.
+To build client IDs in, set `EMAIL_RS_MS_CLIENT_ID`, `EMAIL_RS_GOOGLE_CLIENT_ID` and `EMAIL_RS_GOOGLE_CLIENT_SECRET` when running `cargo build`. Users of such a build never see a Client ID field.
 
 ## Limitations
 
@@ -101,7 +103,7 @@ To build client IDs in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT
 | `src/calendar.rs`, `src/ics.rs`, `src/graph.rs` | Calendar events and storage, iCalendar invites (with VTIMEZONE), Microsoft Graph calendar API |
 | `src/ui/calendar.rs`, `src/ui/appointment.rs`, `src/app/calendar_actions.rs` | Calendar views, the appointment window, and invite / sync logic |
 | `src/oauth.rs` | Microsoft/Google OAuth: PKCE, loopback redirect, token refresh, XOAUTH2 |
-| `src/store.rs`, `src/dpapi.rs` | Cache in `%APPDATA%\OutlookRs\data`; DPAPI-encrypted passwords and tokens |
+| `src/store.rs`, `src/dpapi.rs` | Cache in `%APPDATA%\EmailRs\data`; DPAPI-encrypted passwords and tokens |
 | `assets/`, `build.rs` | App icon (`make-icon.py` regenerates `icon.ico` / `icon.png` with Pillow), embedded into the exe at build time |
 
-`cargo test` runs the unit tests (`cargo test -- --ignored` adds checks against Microsoft's live sign-in, Graph and Exchange endpoints). To capture the window to a PNG and exit, run `outlook-rs --demo --screenshot out.png`.
+`cargo test` runs the unit tests (`cargo test -- --ignored` adds checks against Microsoft's live sign-in, Graph and Exchange endpoints). To capture the window to a PNG and exit, run `email-rs --demo --screenshot out.png`.
