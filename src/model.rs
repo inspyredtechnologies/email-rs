@@ -1,0 +1,203 @@
+//! Core data types shared by the UI and the background mail worker.
+
+use serde::{Deserialize, Serialize};
+
+/// Connection settings for one mail account. The password (or OAuth refresh
+/// token) lives in the Windows Credential Manager, never in this struct.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct AccountConfig {
+    pub id: String,
+    pub display_name: String,
+    pub email: String,
+    pub username: String,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    #[serde(default)]
+    pub auth: AuthMethod,
+}
+
+/// How the account signs in to IMAP/SMTP.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthMethod {
+    #[default]
+    Password,
+    /// OAuth 2.0: Outlook.com, Hotmail, Microsoft 365 / Exchange Online.
+    Microsoft,
+    /// OAuth 2.0: Gmail and Google Workspace.
+    Google,
+}
+
+/// Outlook's well-known folders, detected from IMAP SPECIAL-USE attributes or names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub enum FolderKind {
+    Inbox,
+    Drafts,
+    Sent,
+    Deleted,
+    Archive,
+    Junk,
+    Other,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Folder {
+    /// Full IMAP mailbox name, e.g. `INBOX` or `[Gmail]/Sent Mail`.
+    pub path: String,
+    pub delimiter: Option<String>,
+    pub kind: FolderKind,
+    pub selectable: bool,
+    pub unread: u32,
+    pub total: u32,
+}
+
+impl Folder {
+    /// The label Outlook shows in the folder pane.
+    pub fn display_name(&self) -> String {
+        match self.kind {
+            FolderKind::Inbox => "Inbox".into(),
+            FolderKind::Drafts => "Drafts".into(),
+            FolderKind::Sent => "Sent Items".into(),
+            FolderKind::Deleted => "Deleted Items".into(),
+            FolderKind::Archive => "Archive".into(),
+            FolderKind::Junk => "Junk Email".into(),
+            FolderKind::Other => self.leaf_name().to_string(),
+        }
+    }
+
+    pub fn leaf_name(&self) -> &str {
+        match &self.delimiter {
+            Some(d) if !d.is_empty() => self.path.rsplit(d.as_str()).next().unwrap_or(&self.path),
+            _ => &self.path,
+        }
+    }
+
+    /// Nesting depth in the folder tree (0 = top level).
+    pub fn depth(&self) -> usize {
+        match &self.delimiter {
+            Some(d) if !d.is_empty() => self.path.matches(d.as_str()).count(),
+            _ => 0,
+        }
+    }
+}
+
+/// Classify a mailbox from its LIST attributes and name.
+pub fn classify_folder(path: &str, attributes: &[String]) -> FolderKind {
+    let has = |a: &str| attributes.iter().any(|x| x.eq_ignore_ascii_case(a));
+    if path.eq_ignore_ascii_case("INBOX") {
+        return FolderKind::Inbox;
+    }
+    if has("\\Sent") {
+        return FolderKind::Sent;
+    }
+    if has("\\Trash") {
+        return FolderKind::Deleted;
+    }
+    if has("\\Drafts") {
+        return FolderKind::Drafts;
+    }
+    if has("\\Junk") {
+        return FolderKind::Junk;
+    }
+    if has("\\Archive") {
+        return FolderKind::Archive;
+    }
+    let leaf = path.rsplit(['/', '.']).next().unwrap_or(path).to_ascii_lowercase();
+    match leaf.as_str() {
+        "sent" | "sent items" | "sent mail" | "sent messages" => FolderKind::Sent,
+        "trash" | "deleted items" | "deleted messages" | "bin" => FolderKind::Deleted,
+        "drafts" | "draft" => FolderKind::Drafts,
+        "junk" | "junk email" | "junk e-mail" | "spam" | "bulk mail" => FolderKind::Junk,
+        "archive" | "archives" => FolderKind::Archive,
+        _ => FolderKind::Other,
+    }
+}
+
+/// Header-level information about a message, enough to draw the message list.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageMeta {
+    pub uid: u32,
+    pub from_name: String,
+    pub from_addr: String,
+    pub to: String,
+    pub subject: String,
+    /// Unix timestamp (seconds).
+    pub date: i64,
+    pub seen: bool,
+    pub flagged: bool,
+    pub answered: bool,
+    pub has_attachments: bool,
+    pub size: u32,
+    pub preview: String,
+}
+
+impl MessageMeta {
+    pub fn sender_label(&self) -> &str {
+        if self.from_name.is_empty() { &self.from_addr } else { &self.from_name }
+    }
+}
+
+/// A fully parsed message ready for the reading pane.
+#[derive(Clone, Debug, Default)]
+pub struct MessageBody {
+    pub subject: String,
+    pub from: String,
+    pub to: String,
+    pub cc: String,
+    pub date: i64,
+    pub text: String,
+    pub message_id: Option<String>,
+    pub references: Vec<String>,
+    pub reply_to: Option<String>,
+    pub attachments: Vec<Attachment>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Attachment {
+    pub name: String,
+    pub data: Vec<u8>,
+}
+
+/// A message being composed in a compose window.
+#[derive(Clone, Debug, Default)]
+pub struct Draft {
+    pub account_id: String,
+    pub to: String,
+    pub cc: String,
+    pub bcc: String,
+    pub subject: String,
+    pub body: String,
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
+    pub attachments: Vec<std::path::PathBuf>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_by_attribute_then_name() {
+        assert_eq!(classify_folder("INBOX", &[]), FolderKind::Inbox);
+        assert_eq!(classify_folder("[Gmail]/Sent Mail", &["\\Sent".into()]), FolderKind::Sent);
+        assert_eq!(classify_folder("INBOX.Trash", &[]), FolderKind::Deleted);
+        assert_eq!(classify_folder("Spam", &[]), FolderKind::Junk);
+        assert_eq!(classify_folder("Projects", &[]), FolderKind::Other);
+    }
+
+    #[test]
+    fn folder_tree_helpers() {
+        let f = Folder {
+            path: "Work/Clients/Acme".into(),
+            delimiter: Some("/".into()),
+            kind: FolderKind::Other,
+            selectable: true,
+            unread: 0,
+            total: 0,
+        };
+        assert_eq!(f.leaf_name(), "Acme");
+        assert_eq!(f.depth(), 2);
+        assert_eq!(f.display_name(), "Acme");
+    }
+}
