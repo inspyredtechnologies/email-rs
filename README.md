@@ -10,6 +10,16 @@ cargo run --release              # your accounts (first run opens Add Account)
 cargo run --release -- --demo    # offline sample mailbox, no account needed
 ```
 
+## Build an installer (MSI)
+
+You need the WiX Toolset v5 (`dotnet tool install --global wix --version 5.0.2`). Then run:
+
+```bash
+powershell -ExecutionPolicy Bypass -File installer/build-msi.ps1
+```
+
+This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. The MSI installs per-machine to `Program Files\Outlook RS`, adds a Start menu shortcut and an Apps & features entry, and upgrades older versions in place. It's unsigned, so Windows SmartScreen will warn on first run. Set the `OUTLOOK_RS_*` client ID variables before building to bake in Microsoft and Google sign-in.
+
 ## What works
 
 - **Layout:** ribbon (File / Home / Send / Receive / Folder / View), folder pane with Favorites and unread counts, a three-line message list grouped by date (Today, Yesterday, weekday, Last Week…), reading pane, navigation bar, and status bar.
