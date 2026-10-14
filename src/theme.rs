@@ -41,6 +41,15 @@ pub mod icon {
     pub const CHEVRON_DOWN: char = '\u{E70D}';
 }
 
+/// The app icon for window title bars (the exe's embedded .ico covers the rest).
+pub fn app_icon() -> Arc<egui::IconData> {
+    static ICON: std::sync::OnceLock<Arc<egui::IconData>> = std::sync::OnceLock::new();
+    ICON.get_or_init(|| {
+        Arc::new(eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")).unwrap_or_default())
+    })
+    .clone()
+}
+
 pub fn icon_family() -> FontFamily {
     FontFamily::Name("icons".into())
 }

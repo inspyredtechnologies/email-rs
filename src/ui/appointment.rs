@@ -92,7 +92,8 @@ pub fn show_all(app: &mut App, ctx: &egui::Context) {
         let builder = egui::ViewportBuilder::default()
             .with_title(format!("{subject} - {kind}"))
             .with_inner_size([720.0, 560.0])
-            .with_min_inner_size([520.0, 400.0]);
+            .with_min_inner_size([520.0, 400.0])
+            .with_icon(theme::app_icon());
         ctx.show_viewport_immediate(viewport_id(ed.id), builder, |ui, class| {
             window(ed, &calendars, ui, &mut actions);
             if class != egui::ViewportClass::EmbeddedWindow && ui.input(|i| i.viewport().close_requested()) {

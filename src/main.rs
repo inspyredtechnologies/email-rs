@@ -35,7 +35,8 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Outlook RS")
             .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([800.0, 500.0]),
+            .with_min_inner_size([800.0, 500.0])
+            .with_icon(theme::app_icon()),
         ..Default::default()
     };
     eframe::run_native("Outlook RS", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, demo, screenshot)))))

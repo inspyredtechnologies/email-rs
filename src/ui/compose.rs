@@ -46,7 +46,8 @@ pub fn show_all(app: &mut App, ctx: &egui::Context) {
         let builder = egui::ViewportBuilder::default()
             .with_title(format!("{subject} - Message ({})", if c.draft.plain_text { "Plain Text" } else { "HTML" }))
             .with_inner_size([780.0, 640.0])
-            .with_min_inner_size([520.0, 380.0]);
+            .with_min_inner_size([520.0, 380.0])
+            .with_icon(theme::app_icon());
         ctx.show_viewport_immediate(viewport_id(c.id), builder, |ui, class| {
             if window(c, &accounts, ui) {
                 to_send.push(c.id);

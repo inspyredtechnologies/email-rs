@@ -94,5 +94,6 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 | `src/ui/calendar.rs`, `src/ui/appointment.rs`, `src/app/calendar_actions.rs` | Calendar views, the appointment window, and invite / sync logic |
 | `src/oauth.rs` | Microsoft/Google OAuth: PKCE, loopback redirect, token refresh, XOAUTH2 |
 | `src/store.rs` | Cache in `%APPDATA%\OutlookRs\data`, Credential Manager passwords |
+| `assets/`, `build.rs` | App icon (`make-icon.py` regenerates `icon.ico` / `icon.png` with Pillow), embedded into the exe at build time |
 
 `cargo test` runs the unit tests (`cargo test -- --ignored` adds checks against Microsoft's live token and Graph endpoints). To capture the window to a PNG and exit, run `outlook-rs --demo --screenshot out.png`.
