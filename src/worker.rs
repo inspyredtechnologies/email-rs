@@ -11,6 +11,7 @@ use std::time::Instant;
 use imap::types::{Flag, NameAttribute, StatusAttribute, UnsolicitedResponse};
 use native_tls::TlsStream;
 
+use crate::calendar::{self, Response};
 use crate::model::{AccountConfig, AuthMethod, Draft, Folder, FolderKind, MessageBody, MessageMeta, classify_folder};
 use crate::store::{self, FolderCache};
 use crate::{mime, oauth};
@@ -34,6 +35,12 @@ pub enum Command {
     /// Move to Deleted Items, or delete permanently when already there.
     Delete { folder: String, uids: Vec<u32> },
     Send(Box<Draft>),
+    /// Microsoft accounts: fetch calendar events between two UTC timestamps.
+    CalendarSync { from: i64, to: i64 },
+    /// Create (empty id) or update an event in the account's calendar.
+    CalendarSave(Box<calendar::Event>),
+    CalendarDelete(String),
+    CalendarRespond { id: String, response: Response },
 }
 
 pub enum Event {
@@ -43,6 +50,10 @@ pub enum Event {
     Status { account: String, text: String },
     Error { account: String, text: String },
     SendFailed { draft: Box<Draft>, error: String },
+    CalendarEvents { account: String, events: Vec<calendar::Event> },
+    CalendarError { account: String, text: String },
+    /// The calendar needs a one-time interactive sign-in (Graph consent).
+    CalendarNeedsConnect { account: String },
 }
 
 pub struct WorkerHandle {
@@ -74,12 +85,21 @@ struct Worker {
     caches: HashMap<String, FolderCache>,
     /// Current OAuth access token (OAuth accounts only).
     token: Option<oauth::Tokens>,
+    /// Microsoft Graph access token for the calendar.
+    graph_token: Option<oauth::Tokens>,
+    /// Last synced calendar range, re-synced after changes.
+    cal_range: Option<(i64, i64)>,
 }
 
 type Res<T> = Result<T, String>;
 
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// Credential Manager entry holding an account's Graph (calendar) refresh token.
+pub fn graph_key(account_id: &str) -> String {
+    format!("{account_id}#graph")
 }
 
 /// What to authenticate with: a password, or a current OAuth access token (XOAUTH2).
@@ -144,7 +164,7 @@ pub fn uid_set(uids: &[u32]) -> String {
 impl Worker {
     fn new(config: AccountConfig, events: Sender<Event>, ctx: eframe::egui::Context) -> Self {
         let folders = store::load_folders(&config.id);
-        Self { config, events, ctx, session: None, selected: None, folders, caches: HashMap::new(), token: None }
+        Self { config, events, ctx, session: None, selected: None, folders, caches: HashMap::new(), token: None, graph_token: None, cal_range: None }
     }
 
     fn emit(&self, ev: Event) {
@@ -158,6 +178,10 @@ impl Worker {
 
     fn run(mut self, rx: Receiver<Command>) {
         while let Ok(cmd) = rx.recv() {
+            let cmd = match self.calendar(cmd) {
+                Ok(()) => continue,
+                Err(other) => other,
+            };
             let result = match cmd {
                 Command::SyncAll => self.sync_all(),
                 Command::SyncFolder(f) => self.sync_folder(&f).map(|_| self.emit_folders()),
@@ -172,6 +196,7 @@ impl Worker {
                     }
                     Ok(())
                 }
+                _ => Ok(()),
             };
             if let Err(e) = result {
                 // Assume the connection is unusable; reconnect on the next command.
@@ -182,6 +207,68 @@ impl Worker {
         }
         if let Some(mut s) = self.session.take() {
             let _ = s.logout();
+        }
+    }
+
+    // ------------------------------------------------------------- calendar
+
+    /// Handle calendar commands; anything else is handed back for the mail loop.
+    /// Calendar failures are reported without touching the IMAP connection.
+    fn calendar(&mut self, cmd: Command) -> Result<(), Command> {
+        let result = match cmd {
+            Command::CalendarSync { from, to } => {
+                self.cal_range = Some((from, to));
+                self.calendar_sync()
+            }
+            Command::CalendarSave(event) => self.graph_token().and_then(|t| {
+                if event.id.is_empty() { crate::graph::create(&t, &event) } else { crate::graph::update(&t, &event) }
+            }),
+            Command::CalendarDelete(id) => self.graph_token().and_then(|t| crate::graph::delete(&t, &id)),
+            Command::CalendarRespond { id, response } => self.graph_token().and_then(|t| crate::graph::respond(&t, &id, response)),
+            other => return Err(other),
+        };
+        // After a change, refresh so the UI shows the server's view.
+        let result = result.and_then(|_| if self.cal_range.is_some() { self.calendar_sync() } else { Ok(()) });
+        if let Err(text) = result {
+            self.emit(Event::CalendarError { account: self.config.id.clone(), text });
+        }
+        Ok(())
+    }
+
+    fn calendar_sync(&mut self) -> Res<()> {
+        let Some((from, to)) = self.cal_range else { return Ok(()) };
+        let token = self.graph_token()?;
+        let events = crate::graph::calendar_view(&token, &self.config.id, from, to)?;
+        calendar::save(&self.config.id, &events);
+        self.emit(Event::CalendarEvents { account: self.config.id.clone(), events });
+        Ok(())
+    }
+
+    /// Graph access token. Uses the calendar's own refresh token, or tries the
+    /// mail sign-in's (works if the user already consented to calendar access).
+    fn graph_token(&mut self) -> Res<String> {
+        if let Some(t) = self.graph_token.as_ref().filter(|t| Instant::now() < t.expires_at) {
+            return Ok(t.access_token.clone());
+        }
+        if self.config.auth != AuthMethod::Microsoft {
+            return Err("Calendar sync is available for Microsoft accounts only.".into());
+        }
+        let client = oauth::load_client(AuthMethod::Microsoft);
+        let key = graph_key(&self.config.id);
+        let refresh_token = store::get_password(&key).or_else(|_| store::get_password(&self.config.id))?;
+        match oauth::refresh_scoped(AuthMethod::Microsoft, &client, &refresh_token, Some(oauth::GRAPH_CALENDAR_SCOPES)) {
+            Ok(tokens) => {
+                if let Some(r) = &tokens.refresh_token {
+                    store::set_password(&key, r)?;
+                }
+                let access = tokens.access_token.clone();
+                self.graph_token = Some(tokens);
+                Ok(access)
+            }
+            Err(e) => {
+                self.emit(Event::CalendarNeedsConnect { account: self.config.id.clone() });
+                Err(format!("Calendar access needs a one-time sign-in. {e}"))
+            }
         }
     }
 

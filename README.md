@@ -16,6 +16,14 @@ cargo run --release -- --demo    # offline sample mailbox, no account needed
 - **Mail over IMAP/SMTP:** folder sync with SPECIAL-USE detection (Inbox, Sent Items, Deleted Items, Junk Email…), a local cache of the newest 500 messages per folder, previews for the newest 25, read/unread, flags, Move, Archive, and Delete (to Deleted Items, or permanent when already there).
 - **HTML mail:** rendered with WebView2 (built into Windows 10/11) in the reading pane. Scripts are disabled, and a Content-Security-Policy blocks remote pictures and tracking pixels until you click "Click here to download pictures". Embedded (`cid:`) images display inline. Links open in your browser, and `mailto:` links open a new message.
 - **Compose:** opens in its own window with From / To / Cc / Bcc / Subject and attachments. HTML is the default format, with bold, italic, underline (Ctrl+B / I / U), strikethrough, font size, font color, highlight, bullets and numbering; URLs become links. Mail is sent as multipart/alternative (plain text + HTML); switch Format to Plain Text to send text only. Reply, Reply All and Forward quote the original Outlook-style, including the original's HTML. Sent mail is saved to Sent Items, except on Gmail and Microsoft 365, which do that themselves.
+- **Calendar:**
+  - **Views:** Day, Work Week, Week and Month, with a date navigator and "My Calendars".
+  - **Appointments and meetings:** created, edited and deleted in their own window (Ctrl+N; Ctrl+Shift+Q for a new meeting).
+  - **Calendars:** a local calendar stored on this PC, plus two-way sync with the calendar of each Microsoft account (Outlook.com / Microsoft 365) through Microsoft Graph. Recurring Graph meetings are expanded into their occurrences.
+- **Meeting invites:** invites in your mail show When / Where / Organizer with Accept, Tentative and Decline.
+  - On a Microsoft calendar, the response goes through Graph.
+  - Otherwise it's emailed to the organizer as a standard iCalendar reply (iMIP) and the meeting is added to the local calendar. Cancellations offer "Remove from Calendar".
+  - Meetings you organize on the local calendar email iCalendar invitations, updates and cancellations to attendees.
 - **Accounts:** Add Account with presets for Outlook.com, Gmail, Yahoo, iCloud, Fastmail and AOL, plus a live connection test. Three sign-in methods: password, **Microsoft** (Outlook.com, Hotmail, Microsoft 365 / Exchange Online) and **Google**. The last two use OAuth 2.0 in your browser (XOAUTH2), so Outlook RS never sees your password. Passwords and refresh tokens are stored in Windows Credential Manager.
 - **Shortcuts:**
 
@@ -43,6 +51,7 @@ Microsoft and Google only allow OAuth sign-in through an *app registration*. Cre
 3. Under Redirect URI, choose platform **Public client/native (mobile & desktop)** with value `http://localhost`, then click **Register**.
 4. Copy the **Application (client) ID** into the Client ID field.
 5. For work or school accounts: under **API permissions**, add *Office 365 Exchange Online* > Delegated > `IMAP.AccessAsUser.All` and `SMTP.Send`. Your admin may need to grant consent, and must have IMAP and Authenticated SMTP enabled for the mailbox.
+6. For the calendar, also add *Microsoft Graph* > Delegated > `Calendars.ReadWrite`. The first time you open the Calendar, Outlook RS tries to reuse your mail sign-in. If Microsoft needs separate consent, "Connect this calendar..." appears under My Calendars and runs a one-time browser sign-in.
 
 **Google (Gmail, Google Workspace)**
 
@@ -58,7 +67,8 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 
 - In replies and forwards the quoted original can't be edited (it's shown below your text and sent as-is). There's no font-face picker, inline images, tables or signatures.
 - Exchange is reached over IMAP/SMTP only, with no EWS or MAPI. On-premises Exchange works with the Password method if its admin has enabled IMAP.
-- Calendar, People and Tasks are placeholders.
+- People and Tasks are placeholders.
+- Calendar: no reminders, no recurring events of your own, and no Google or CalDAV calendar sync. For invites handled on the local calendar, only the first occurrence of a recurring meeting is added.
 - No PST/OST import, drafts saving, rules, or IMAP IDLE (it polls every 10 minutes and on F9).
 
 ## Layout
@@ -70,7 +80,9 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 | `src/ui/` | Ribbon, folder pane, list, reading pane, compose, account dialogs |
 | `src/mime.rs` | Message parsing, reply/forward building, outgoing MIME |
 | `src/html.rs`, `src/webview.rs` | HTML mail sanitizing (CSP, cid: images) and the WebView2 reading-pane view |
+| `src/calendar.rs`, `src/ics.rs`, `src/graph.rs` | Calendar events and storage, iCalendar invites (with VTIMEZONE), Microsoft Graph calendar API |
+| `src/ui/calendar.rs`, `src/ui/appointment.rs`, `src/app/calendar_actions.rs` | Calendar views, the appointment window, and invite / sync logic |
 | `src/oauth.rs` | Microsoft/Google OAuth: PKCE, loopback redirect, token refresh, XOAUTH2 |
 | `src/store.rs` | Cache in `%APPDATA%\OutlookRs\data`, Credential Manager passwords |
 
-`cargo test` runs the unit tests (`cargo test -- --ignored` adds a check against Microsoft's live token endpoint). To capture the window to a PNG and exit, run `outlook-rs --demo --screenshot out.png`.
+`cargo test` runs the unit tests (`cargo test -- --ignored` adds checks against Microsoft's live token and Graph endpoints). To capture the window to a PNG and exit, run `outlook-rs --demo --screenshot out.png`.

@@ -5,8 +5,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod calendar;
 mod demo;
+mod graph;
 mod html;
+mod ics;
 mod mime;
 mod model;
 mod oauth;

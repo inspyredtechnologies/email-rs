@@ -32,6 +32,8 @@ pub mod icon {
     pub const ATTACH: char = '\u{E723}';
     pub const SEARCH: char = '\u{E721}';
     pub const CALENDAR: char = '\u{E787}';
+    pub const CALENDAR_DAY: char = '\u{E8BF}';
+    pub const CALENDAR_WEEK: char = '\u{E8C0}';
     pub const PEOPLE: char = '\u{E716}';
     pub const TASKS: char = '\u{E73A}';
     pub const SETTINGS: char = '\u{E713}';

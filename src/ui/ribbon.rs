@@ -16,6 +16,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, BORDER));
     let mut body = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(6.0, 4.0))).layout(egui::Layout::left_to_right(egui::Align::Min)));
     match app.ribbon_tab {
+        RibbonTab::Home if app.module == crate::app::Module::Calendar => calendar_home(app, &mut body),
         RibbonTab::Home => home(app, &mut body),
         RibbonTab::SendReceive => send_receive(app, &mut body),
         RibbonTab::Folder => folder(app, &mut body),
@@ -239,5 +240,51 @@ fn view(app: &mut App, ui: &mut Ui) {
             ui.radio_value(reading, true, "Right");
             ui.radio_value(reading, false, "Off");
         });
+    });
+}
+
+/// Home tab while the calendar is shown.
+fn calendar_home(app: &mut App, ui: &mut Ui) {
+    use super::calendar::CalView;
+    use crate::calendar::local_ts;
+    let slot_start = app.cal.slot.map(|(d, m)| local_ts(d, m));
+    group(ui, "New", |ui| {
+        if large(ui, icon::CALENDAR, "New Appointment", true).on_hover_text("New Appointment (Ctrl+N)").clicked() {
+            app.actions.push(Action::NewAppointment { start: slot_start, all_day: false, meeting: false });
+        }
+        if large(ui, icon::PEOPLE, "New Meeting", true).on_hover_text("New Meeting (Ctrl+Shift+Q)").clicked() {
+            app.actions.push(Action::NewAppointment { start: slot_start, all_day: false, meeting: true });
+        }
+    });
+    group(ui, "Go To", |ui| {
+        if large(ui, icon::CALENDAR, "Today", true).clicked() {
+            app.cal.go_to(chrono::Local::now().date_naive());
+            app.cal.scroll_to_morning = true;
+        }
+    });
+    group(ui, "Arrange", |ui| {
+        for (view, label, glyph) in [
+            (CalView::Day, "Day", icon::CALENDAR_DAY),
+            (CalView::WorkWeek, "Work Week", icon::CALENDAR_WEEK),
+            (CalView::Week, "Week", icon::CALENDAR_WEEK),
+            (CalView::Month, "Month", icon::CALENDAR),
+        ] {
+            let r = large(ui, glyph, label, true);
+            if app.cal.view == view {
+                ui.painter().rect_stroke(r.rect, 0.0, Stroke::new(1.0, BLUE), egui::StrokeKind::Inside);
+            }
+            if r.clicked() {
+                app.cal.view = view;
+                app.cal.scroll_to_morning = true;
+            }
+        }
+    });
+    let selected = app.cal.selected.clone();
+    group(ui, "Actions", |ui| {
+        if large(ui, icon::MAIL, "Open", selected.is_some()).clicked() {
+            if let Some((c, id)) = &selected {
+                app.actions.push(Action::OpenEvent(c.clone(), id.clone()));
+            }
+        }
     });
 }

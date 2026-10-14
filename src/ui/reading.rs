@@ -70,6 +70,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.label(RichText::new(format!("{}  Follow up.", '\u{2691}')).color(theme::FLAG_RED).small());
         }
 
+        if let Some(inv) = body.as_ref().and_then(|b| b.invite.clone()) {
+            ui.add_space(8.0);
+            invite_bar(app, ui, &inv);
+        }
         if let Some(b) = &body {
             if !b.attachments.is_empty() {
                 ui.add_space(6.0);
@@ -114,6 +118,74 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     });
                 }
             }
+        });
+    });
+}
+
+/// Meeting request / cancellation summary with Outlook's response buttons.
+fn invite_bar(app: &mut App, ui: &mut Ui, inv: &crate::ics::Invite) {
+    use crate::calendar::Response;
+    use crate::ics::Method;
+    let existing = app.cal.find_uid(&inv.uid).map(|e| e.response);
+    egui::Frame::NONE.fill(Color32::from_rgb(0xF3, 0xF2, 0xF1)).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal_top(|ui| {
+            ui.label(icon(icon::CALENDAR, 22.0).color(theme::BLUE));
+            ui.add_space(4.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 3.0;
+                let title = match inv.method {
+                    Method::Cancel => "Meeting canceled",
+                    Method::Reply => "Meeting response",
+                    _ => "Meeting request",
+                };
+                ui.label(theme::bold(title, 13.5));
+                ui.label(format!("When: {}", crate::app::when_text(inv.start, inv.end, inv.all_day)));
+                if !inv.location.is_empty() {
+                    ui.label(format!("Where: {}", inv.location));
+                }
+                if let Some(o) = &inv.organizer {
+                    ui.label(RichText::new(format!("Organizer: {}", o.label())).color(SUBTLE));
+                }
+                if inv.recurring && inv.method == Method::Request {
+                    ui.label(RichText::new("Recurring meeting: only the first occurrence is added to a local calendar.").small().color(SUBTLE));
+                }
+                ui.add_space(4.0);
+                match inv.method {
+                    Method::Request => {
+                        ui.horizontal(|ui| {
+                            for (glyph, label, resp) in [
+                                (icon::READ, "Accept", Response::Accepted),
+                                (icon::FLAG, "Tentative", Response::Tentative),
+                                (icon::DELETE, "Decline", Response::Declined),
+                            ] {
+                                if super::flat_button(ui, glyph, label).clicked() {
+                                    app.actions.push(Action::RespondInvite(resp));
+                                }
+                            }
+                        });
+                        let status = match existing {
+                            Some(Response::Accepted) => Some("You accepted this meeting."),
+                            Some(Response::Tentative) => Some("You tentatively accepted this meeting."),
+                            Some(Response::Declined) => Some("You declined this meeting."),
+                            _ => None,
+                        };
+                        if let Some(s) = status {
+                            ui.label(RichText::new(s).color(theme::BLUE));
+                        }
+                    }
+                    Method::Cancel => {
+                        if existing.is_some() {
+                            if super::flat_button(ui, icon::DELETE, "Remove from Calendar").clicked() {
+                                app.actions.push(Action::RemoveCanceledInvite);
+                            }
+                        } else {
+                            ui.label(RichText::new("This meeting isn't on your calendar.").color(SUBTLE));
+                        }
+                    }
+                    _ => {}
+                }
+            });
         });
     });
 }

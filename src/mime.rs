@@ -98,7 +98,22 @@ pub fn parse_body(raw: &[u8]) -> MessageBody {
             .unwrap_or_default(),
         reply_to: msg.reply_to().map(|a| format_address(Some(a))),
         attachments,
+        invite: find_invite(&msg),
     }
+}
+
+/// The first text/calendar part (or .ics attachment) parsed as an invite.
+fn find_invite(msg: &mail_parser::Message) -> Option<crate::ics::Invite> {
+    msg.parts.iter().find_map(|p| {
+        let is_cal = p.content_type().is_some_and(|ct| {
+            ct.ctype().eq_ignore_ascii_case("text") && ct.subtype().is_some_and(|s| s.eq_ignore_ascii_case("calendar"))
+        }) || p.attachment_name().is_some_and(|n| n.to_ascii_lowercase().ends_with(".ics"));
+        if !is_cal {
+            return None;
+        }
+        let text = p.text_contents().map(str::to_string).unwrap_or_else(|| String::from_utf8_lossy(p.contents()).into_owned());
+        crate::ics::parse_invite(&text)
+    })
 }
 
 /// Short single-line preview, like the second line of Outlook's message list.
@@ -292,9 +307,21 @@ pub fn build_message(account: &AccountConfig, draft: &Draft) -> Result<lettre::M
 
     // Plain text alone, or text + HTML alternatives (what Outlook sends for HTML mail).
     let plain = format!("{}{}", draft.body, draft.quote_text);
-    let alternative = || MultiPart::alternative_plain_html(plain.clone(), html_document(draft));
+    let alternative = || match &draft.calendar {
+        // Meeting requests and replies: text plus the iCalendar part (iMIP, RFC 6047).
+        Some((method, ics)) => MultiPart::alternative().singlepart(SinglePart::plain(plain.clone())).singlepart(
+            SinglePart::builder()
+                .header(ContentType::parse(&format!("text/calendar; method={method}; charset=UTF-8")).unwrap())
+                .body(ics.clone()),
+        ),
+        None => MultiPart::alternative_plain_html(plain.clone(), html_document(draft)),
+    };
     let result = if draft.attachments.is_empty() {
-        if draft.plain_text { builder.singlepart(SinglePart::plain(plain.clone())) } else { builder.multipart(alternative()) }
+        if draft.plain_text && draft.calendar.is_none() {
+            builder.singlepart(SinglePart::plain(plain.clone()))
+        } else {
+            builder.multipart(alternative())
+        }
     } else {
         let mut mp = if draft.plain_text {
             MultiPart::mixed().singlepart(SinglePart::plain(plain.clone()))
@@ -394,6 +421,41 @@ Hi team,\r\nHere are the numbers.\r\n";
         assert!(!raw.contains("text/html"));
         d.to.clear();
         assert!(build_message(&account(), &d).is_err());
+    }
+
+    #[test]
+    fn meeting_mail_round_trips() {
+        use crate::ics::{EventSpec, Method, Person};
+        let org = Person { name: "Megan".into(), email: "megan@example.com".into() };
+        let me = Person { name: "Me".into(), email: "me@example.com".into() };
+        let spec = EventSpec {
+            uid: "uid-1",
+            sequence: 1,
+            summary: "Design review",
+            location: "Room 4",
+            description: "",
+            start: 1_792_000_000,
+            end: 1_792_003_600,
+            all_day: false,
+            organizer: &org,
+            attendees: vec![(&me, "ACCEPTED")],
+        };
+        let draft = Draft {
+            account_id: "a1".into(),
+            to: org.label(),
+            subject: "Accepted: Design review".into(),
+            body: "Me has accepted this meeting.".into(),
+            plain_text: true,
+            calendar: Some(("REPLY".into(), crate::ics::write("REPLY", &spec))),
+            ..Default::default()
+        };
+        let raw = build_message(&account(), &draft).unwrap().formatted();
+        let text = String::from_utf8_lossy(&raw);
+        assert!(text.contains("Content-Type: text/calendar; method=REPLY; charset=utf-8"));
+        let parsed = parse_body(&raw);
+        let inv = parsed.invite.expect("invite part");
+        assert_eq!((inv.method, inv.uid.as_str(), inv.start), (Method::Reply, "uid-1", 1_792_000_000));
+        assert!(parsed.text.starts_with("Me has accepted"));
     }
 
     #[test]

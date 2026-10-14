@@ -13,6 +13,9 @@ use crate::model::{AccountConfig, Draft, Folder, FolderKind, MessageBody, Messag
 use crate::worker::{self, Command, Event, WorkerHandle};
 use crate::{demo, store, theme, ui};
 
+mod calendar_actions;
+pub use calendar_actions::when_text;
+
 /// Outlook's default automatic Send/Receive interval is 30 minutes; we poll a bit more often.
 const AUTO_SYNC: Duration = Duration::from_secs(10 * 60);
 
@@ -93,6 +96,17 @@ pub enum Action {
     Send(u64),
     /// Load remote pictures for the selected message ("Click here to download pictures").
     AllowRemoteContent,
+    NewAppointment { start: Option<i64>, all_day: bool, meeting: bool },
+    /// (calendar id, event id)
+    OpenEvent(String, String),
+    SaveEvent(Box<crate::calendar::Event>, bool),
+    DeleteEvent(Box<crate::calendar::Event>),
+    RespondEvent(Box<crate::calendar::Event>, crate::calendar::Response),
+    /// Accept / Tentative / Decline on the invite in the reading pane.
+    RespondInvite(crate::calendar::Response),
+    RemoveCanceledInvite,
+    /// One-time Microsoft sign-in for calendar access.
+    ConnectCalendar(String),
 }
 
 /// Where the reading pane wants HTML drawn this frame.
@@ -142,6 +156,7 @@ pub struct App {
     pub html_unavailable: bool,
     #[cfg(windows)]
     html_view: Option<crate::webview::HtmlView>,
+    pub cal: ui::calendar::CalendarState,
 }
 
 impl App {
@@ -180,6 +195,7 @@ impl App {
             html_unavailable: !cfg!(windows),
             #[cfg(windows)]
             html_view: None,
+            cal: ui::calendar::CalendarState::new(),
         };
 
         if demo_mode {
@@ -196,6 +212,7 @@ impl App {
                 app.accounts.push(acct);
                 app.start_worker(config);
             }
+            app.load_calendars();
             if app.accounts.is_empty() {
                 // First run: Outlook opens straight into the Add Account wizard.
                 app.account_dialog = Some(ui::account::AccountDialog::new());
@@ -223,6 +240,7 @@ impl App {
         }
         acct.status = "All folders are up to date.".into();
         self.accounts.push(acct);
+        self.cal.local = demo::events();
         self.selected = Some(1);
     }
 
@@ -331,6 +349,9 @@ impl App {
                         a.status = "Disconnected".into();
                         a.error = Some(text);
                     }
+                }
+                ev @ (Event::CalendarEvents { .. } | Event::CalendarError { .. } | Event::CalendarNeedsConnect { .. }) => {
+                    self.calendar_event(ev);
                 }
                 Event::SendFailed { draft, error } => {
                     let id = self.open_composer(*draft);
@@ -500,6 +521,7 @@ impl App {
         self.workers.remove(id);
         self.accounts.retain(|a| a.config.id != id);
         self.bodies.retain(|(a, _, _), _| a != id);
+        self.cal.remote.remove(id);
         let saved: Vec<AccountConfig> =
             self.accounts.iter().filter(|a| a.config.id != demo::ACCOUNT_ID).map(|a| a.config.clone()).collect();
         store::save_accounts(&saved);
@@ -564,6 +586,7 @@ impl App {
                 }
                 Action::SendReceive => {
                     self.last_sync = Instant::now();
+                    self.cal.synced.clear();
                     for w in self.workers.values() {
                         w.send(Command::SyncAll);
                     }
@@ -597,6 +620,14 @@ impl App {
                 Action::RemoveAccount(id) => self.remove_account(&id),
                 Action::SaveAttachment(i) => self.save_attachment(i),
                 Action::Send(id) => self.send_composer(id),
+                Action::NewAppointment { start, all_day, meeting } => self.new_appointment(start, all_day, meeting),
+                Action::OpenEvent(cal, id) => self.open_event(&cal, &id),
+                Action::SaveEvent(e, is_new) => self.save_event(*e, is_new),
+                Action::DeleteEvent(e) => self.delete_event(*e),
+                Action::RespondEvent(e, r) => self.respond_event(*e, r),
+                Action::RespondInvite(r) => self.respond_invite(r),
+                Action::RemoveCanceledInvite => self.remove_canceled_invite(),
+                Action::ConnectCalendar(acct) => self.connect_calendar(acct),
                 Action::AllowRemoteContent => {
                     if let (Some((acct, folder)), Some(uid)) = (self.current.clone(), self.selected) {
                         self.allow_remote.insert((acct, folder, uid));
@@ -615,8 +646,19 @@ impl App {
         let shortcut = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
         let ctrl_shift = Modifiers::COMMAND | Modifiers::SHIFT;
 
+        if shortcut(ctrl_shift, Key::Q) {
+            self.actions.push(Action::NewAppointment { start: None, all_day: false, meeting: true });
+        }
         if shortcut(Modifiers::COMMAND, Key::N) {
-            self.actions.push(Action::NewMail);
+            // Ctrl+N creates the default item of the current module.
+            self.actions.push(match self.module {
+                Module::Calendar => Action::NewAppointment {
+                    start: self.cal.slot.map(|(d, m)| crate::calendar::local_ts(d, m)),
+                    all_day: false,
+                    meeting: false,
+                },
+                _ => Action::NewMail,
+            });
         }
         if shortcut(Modifiers::COMMAND, Key::E) {
             self.focus_search = true;
@@ -751,7 +793,9 @@ impl eframe::App for App {
         ctx.request_repaint_after(AUTO_SYNC);
 
         ui::draw(self, ui);
+        self.calendar_tick();
         ui::compose::show_all(self, &ctx);
+        ui::appointment::show_all(self, &ctx);
         ui::account::show(self, &ctx);
         ui::show_alert(self, &ctx);
         self.sync_html_view(frame, &ctx);

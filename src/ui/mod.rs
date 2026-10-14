@@ -2,6 +2,8 @@
 //! navigation bar and status bar, arranged like Outlook Classic.
 
 pub mod account;
+pub mod appointment;
+pub mod calendar;
 pub mod compose;
 pub mod folders;
 pub mod list;
@@ -33,7 +35,10 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
             .default_size(230.0)
             .min_size(150.0)
             .frame(Frame::NONE.fill(theme::WHITE).inner_margin(Margin::symmetric(0, 6)))
-            .show(ui, |ui| folders::show(app, ui));
+            .show(ui, |ui| match app.module {
+                Module::Calendar => calendar::nav_pane(app, ui),
+                _ => folders::show(app, ui),
+            });
     }
 
     let white = Frame::NONE.fill(theme::WHITE);
@@ -49,12 +54,11 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
         Module::Mail => {
             CentralPanel::default().frame(white).show(ui, |ui| list::show(app, ui));
         }
+        Module::Calendar => {
+            CentralPanel::default().frame(white).show(ui, |ui| calendar::show(app, ui));
+        }
         other => {
-            let name = match other {
-                Module::Calendar => "Calendar",
-                Module::People => "People",
-                _ => "Tasks",
-            };
+            let name = if other == Module::People { "People" } else { "Tasks" };
             CentralPanel::default().frame(white).show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
                     ui.label(RichText::new(format!("{name} isn't part of this build yet. Mail is fully functional.")).color(SUBTLE));
@@ -81,10 +85,14 @@ fn status_bar(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
         let (total, unread) = app.current_folder().map(|f| (f.total, f.unread)).unwrap_or((0, 0));
         let shown = app.visible_messages().len();
-        let filtered = app.unread_only || !app.search.trim().is_empty();
-        ui.label(RichText::new(format!("Items: {}", if filtered { shown as u32 } else { total })).small());
-        ui.add_space(12.0);
-        ui.label(RichText::new(format!("Unread: {unread}")).small());
+        let filtered = app.module == Module::Mail && (app.unread_only || !app.search.trim().is_empty());
+        if app.module == Module::Calendar {
+            ui.label(RichText::new(format!("Items: {}", calendar::visible_count(app))).small());
+        } else {
+            ui.label(RichText::new(format!("Items: {}", if filtered { shown as u32 } else { total })).small());
+            ui.add_space(12.0);
+            ui.label(RichText::new(format!("Unread: {unread}")).small());
+        }
         if filtered {
             ui.add_space(12.0);
             ui.label(RichText::new("FILTER APPLIED").small().color(BLUE));

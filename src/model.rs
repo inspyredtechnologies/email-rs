@@ -153,6 +153,8 @@ pub struct MessageBody {
     pub references: Vec<String>,
     pub reply_to: Option<String>,
     pub attachments: Vec<Attachment>,
+    /// Meeting request or cancellation carried in a text/calendar part.
+    pub invite: Option<crate::ics::Invite>,
 }
 
 #[derive(Clone, Debug)]
@@ -180,6 +182,8 @@ pub struct Draft {
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub attachments: Vec<std::path::PathBuf>,
+    /// iCalendar part for meeting requests/replies: (METHOD, iCalendar text).
+    pub calendar: Option<(String, String)>,
 }
 
 #[cfg(test)]

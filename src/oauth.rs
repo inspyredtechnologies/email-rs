@@ -266,8 +266,15 @@ fn token_request(p: &Provider, form: &[(&str, &str)]) -> Result<Tokens, String> 
     })
 }
 
-fn require_client(method: AuthMethod, client: &ClientConfig) -> Result<Provider, String> {
-    let p = provider(method).ok_or("This account doesn't use OAuth sign-in.")?;
+/// Microsoft Graph scopes for the calendar (a separate token from IMAP/SMTP's).
+pub const GRAPH_CALENDAR_SCOPES: &str = "https://graph.microsoft.com/Calendars.ReadWrite offline_access";
+
+/// The provider, with its default mail scopes unless `scopes` overrides them.
+fn require_client(method: AuthMethod, client: &ClientConfig, scopes: Option<&'static str>) -> Result<Provider, String> {
+    let mut p = provider(method).ok_or("This account doesn't use OAuth sign-in.")?;
+    if let Some(s) = scopes {
+        p.scopes = s;
+    }
     if client.client_id.trim().is_empty() {
         return Err(match method {
             AuthMethod::Microsoft => "A Microsoft app registration (client ID) is needed. Register a free app at entra.microsoft.com \
@@ -283,7 +290,18 @@ fn require_client(method: AuthMethod, client: &ClientConfig) -> Result<Provider,
 /// Interactive sign-in: opens the browser and blocks until the redirect arrives
 /// (or `cancel` is set). Returns tokens including a refresh token.
 pub fn sign_in(method: AuthMethod, client: &ClientConfig, login_hint: &str, cancel: Arc<AtomicBool>) -> Result<Tokens, String> {
-    let p = require_client(method, client)?;
+    sign_in_scoped(method, client, login_hint, cancel, None)
+}
+
+/// `sign_in` for specific scopes (e.g. `GRAPH_CALENDAR_SCOPES`).
+pub fn sign_in_scoped(
+    method: AuthMethod,
+    client: &ClientConfig,
+    login_hint: &str,
+    cancel: Arc<AtomicBool>,
+    scopes: Option<&'static str>,
+) -> Result<Tokens, String> {
+    let p = require_client(method, client, scopes)?;
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Cannot start the sign-in listener: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect = format!("http://localhost:{port}");
@@ -314,7 +332,13 @@ pub fn sign_in(method: AuthMethod, client: &ClientConfig, login_hint: &str, canc
 /// Exchange a stored refresh token for a fresh access token. Providers may rotate
 /// the refresh token; callers should store `refresh_token` when it's `Some`.
 pub fn refresh(method: AuthMethod, client: &ClientConfig, refresh_token: &str) -> Result<Tokens, String> {
-    let p = require_client(method, client)?;
+    refresh_scoped(method, client, refresh_token, None).map_err(|e| format!("{e} Open File > Account Settings and sign in again."))
+}
+
+/// `refresh` for specific scopes. Microsoft lets a refresh token mint tokens for
+/// another resource the user has already consented to.
+pub fn refresh_scoped(method: AuthMethod, client: &ClientConfig, refresh_token: &str, scopes: Option<&'static str>) -> Result<Tokens, String> {
+    let p = require_client(method, client, scopes)?;
     let mut form = vec![
         ("grant_type", "refresh_token"),
         ("client_id", client.client_id.trim()),
@@ -324,7 +348,7 @@ pub fn refresh(method: AuthMethod, client: &ClientConfig, refresh_token: &str) -
     if !client.client_secret.trim().is_empty() {
         form.push(("client_secret", client.client_secret.trim()));
     }
-    token_request(&p, &form).map_err(|e| format!("{e} Open File > Account Settings and sign in again."))
+    token_request(&p, &form)
 }
 
 /// SASL XOAUTH2 initial response (before base64, which the IMAP/SMTP libraries apply).

@@ -67,6 +67,8 @@ fn account_dir(account_id: &str) -> PathBuf {
 pub fn forget_account(account_id: &str) {
     let _ = fs::remove_dir_all(account_dir(account_id));
     delete_password(account_id);
+    delete_password(&crate::worker::graph_key(account_id));
+    crate::calendar::forget(account_id);
 }
 
 /// File-system-safe name for a mailbox path.
