@@ -441,11 +441,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 });
                 ui.end_row();
 
+                // Builds that ship with a client registration never ask users for one.
+                let builtin = |m: AuthMethod| oauth::builtin_client(m).is_some();
                 match dlg.kind {
                     Kind::Microsoft365 => {
-                        ui.label("Client ID:");
-                        ui.add(egui::TextEdit::singleline(&mut dlg.client.client_id).hint_text("From your app registration").desired_width(340.0));
-                        ui.end_row();
+                        if !builtin(AuthMethod::Microsoft) {
+                            ui.label("Client ID:");
+                            ui.add(egui::TextEdit::singleline(&mut dlg.client.client_id).hint_text("From your app registration").desired_width(340.0));
+                            ui.end_row();
+                        }
                     }
                     Kind::Exchange => {
                         ui.label("User Name:");
@@ -464,7 +468,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             dlg.set_auth(auth);
                         }
                         ui.end_row();
-                        if dlg.auth != AuthMethod::Password {
+                        if dlg.auth != AuthMethod::Password && !builtin(dlg.auth) {
                             ui.label("Client ID:");
                             ui.add(egui::TextEdit::singleline(&mut dlg.client.client_id).hint_text("From your app registration").desired_width(340.0));
                             ui.end_row();

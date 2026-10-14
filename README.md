@@ -18,7 +18,7 @@ You need the WiX Toolset v5 (`dotnet tool install --global wix --version 5.0.2`)
 powershell -ExecutionPolicy Bypass -File installer/build-msi.ps1
 ```
 
-This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. The MSI installs per-machine to `Program Files\Outlook RS`, adds a Start menu shortcut and an Apps & features entry, and upgrades older versions in place. It's unsigned, so Windows SmartScreen will warn on first run. Set the `OUTLOOK_RS_*` client ID variables before building to bake in Microsoft and Google sign-in.
+This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. The MSI installs per-machine to `Program Files\Outlook RS`, adds a Start menu shortcut and an Apps & features entry, and upgrades older versions in place. It's unsigned, so Windows SmartScreen will warn on first run. Set the `OUTLOOK_RS_GOOGLE_*` client variables before building to build in Google sign-in. Microsoft sign-in is already built in.
 
 ## What works
 
@@ -54,20 +54,20 @@ This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. T
   | Ctrl+Enter or Alt+S | Send (in compose) |
   | ↑ / ↓ | Move through the list |
 
-## Setting up Microsoft or Google sign-in
+## Microsoft and Google sign-in
 
-Microsoft and Google only allow OAuth sign-in through an *app registration*. Create one (free, about 5 minutes) and paste its client ID into Add Account. Outlook RS saves it in `%APPDATA%\OutlookRs\data\oauth.json`, so you only enter it once.
+**Microsoft (Outlook.com, Hotmail, Microsoft 365 / Exchange Online)** works out of the box. Outlook RS ships with its own multi-tenant Entra app registration (client ID `3d431ce5-1cc0-4e61-8696-7e88a14e62ef`), so users just click *Sign in with Microsoft*. An organization that restricts user consent needs its admin to approve Outlook RS once, at `https://login.microsoftonline.com/<tenant-domain>/adminconsent?client_id=3d431ce5-1cc0-4e61-8696-7e88a14e62ef`.
 
-**Microsoft (Outlook.com, Hotmail, Microsoft 365 / Exchange Online)**
+To use your own registration instead (for example in a fork), build with `OUTLOOK_RS_MS_CLIENT_ID` set. The registration must be set up like this:
 
 1. Go to [entra.microsoft.com](https://entra.microsoft.com) > **App registrations** > **New registration**.
 2. For supported account types, choose **Accounts in any organizational directory and personal Microsoft accounts**.
 3. Under Redirect URI, choose platform **Public client/native (mobile & desktop)** with value `http://localhost`, then click **Register**.
-4. Copy the **Application (client) ID** into the Client ID field.
+4. Copy the **Application (client) ID**.
 5. Under **API permissions**, add *Microsoft Graph* > Delegated > `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite` and `offline_access`. That's all the "Microsoft 365 / Outlook.com" account type needs. Your organization's admin may need to grant consent once.
 6. Only for Microsoft accounts set up as "IMAP / SMTP": also add `IMAP.AccessAsUser.All` and `SMTP.Send`, and have the admin enable IMAP and Authenticated SMTP for the mailbox. For the calendar on such an account, "Connect this calendar..." under My Calendars runs a one-time extra sign-in if needed.
 
-**Google (Gmail, Google Workspace)**
+**Google (Gmail, Google Workspace)** needs your own OAuth client: there isn't one built in. In builds without a built-in client ID, Add Account shows a Client ID field and saves the value in `%APPDATA%\OutlookRs\data\oauth.json`.
 
 1. In [console.cloud.google.com](https://console.cloud.google.com), create a project and configure the **OAuth consent screen** (External, Testing). Add yourself as a test user.
 2. Go to **Credentials** > **Create credentials** > **OAuth client ID** > **Desktop app**.
@@ -75,7 +75,7 @@ Microsoft and Google only allow OAuth sign-in through an *app registration*. Cre
 
 While the Google project is in Testing, Google expires its sign-ins after 7 days. Without OAuth, Gmail still works with an app password.
 
-To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT_ID` and `OUTLOOK_RS_GOOGLE_CLIENT_SECRET` when running `cargo build`.
+To build client IDs in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT_ID` and `OUTLOOK_RS_GOOGLE_CLIENT_SECRET` when running `cargo build`. Users of such a build never see a Client ID field.
 
 ## Limitations
 

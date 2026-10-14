@@ -69,24 +69,41 @@ fn read_client_file() -> ClientFile {
     std::fs::read(client_file_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-/// Client registration: saved settings first, then IDs baked in at build time
-/// (`OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT_SECRET`).
-pub fn load_client(method: AuthMethod) -> ClientConfig {
-    let file = read_client_file();
-    let (saved, id, secret) = match method {
-        AuthMethod::Microsoft => (file.microsoft, option_env!("OUTLOOK_RS_MS_CLIENT_ID"), None),
-        AuthMethod::Google => {
-            (file.google, option_env!("OUTLOOK_RS_GOOGLE_CLIENT_ID"), option_env!("OUTLOOK_RS_GOOGLE_CLIENT_SECRET"))
-        }
-        AuthMethod::Password => return ClientConfig::default(),
+/// Outlook RS's own Microsoft Entra app registration (multi-tenant + personal
+/// accounts, public client, redirect `http://localhost`). A client ID isn't a
+/// secret; desktop apps ship theirs. Override with `OUTLOOK_RS_MS_CLIENT_ID` at build time.
+const MS_CLIENT_ID: &str = "3d431ce5-1cc0-4e61-8696-7e88a14e62ef";
+
+/// The client registration built into the app (`OUTLOOK_RS_MS_CLIENT_ID`,
+/// `OUTLOOK_RS_GOOGLE_CLIENT_ID`, `OUTLOOK_RS_GOOGLE_CLIENT_SECRET` at build time), if any.
+pub fn builtin_client(method: AuthMethod) -> Option<ClientConfig> {
+    let (id, secret) = match method {
+        AuthMethod::Microsoft => (option_env!("OUTLOOK_RS_MS_CLIENT_ID").or(Some(MS_CLIENT_ID)), None),
+        AuthMethod::Google => (option_env!("OUTLOOK_RS_GOOGLE_CLIENT_ID"), option_env!("OUTLOOK_RS_GOOGLE_CLIENT_SECRET")),
+        AuthMethod::Password => (None, None),
     };
-    if !saved.client_id.trim().is_empty() {
-        return saved;
+    let id = id.map(str::trim).filter(|s| !s.is_empty())?;
+    Some(ClientConfig { client_id: id.into(), client_secret: secret.unwrap_or_default().trim().into() })
+}
+
+/// The client registration to sign in with: the built-in one when the app ships
+/// with it (users never see or enter a client ID), else the one saved in Add Account.
+pub fn load_client(method: AuthMethod) -> ClientConfig {
+    if let Some(builtin) = builtin_client(method) {
+        return builtin;
     }
-    ClientConfig { client_id: id.unwrap_or_default().into(), client_secret: secret.unwrap_or_default().into() }
+    let file = read_client_file();
+    match method {
+        AuthMethod::Microsoft => file.microsoft,
+        AuthMethod::Google => file.google,
+        AuthMethod::Password => ClientConfig::default(),
+    }
 }
 
 pub fn save_client(method: AuthMethod, client: &ClientConfig) {
+    if builtin_client(method).is_some() {
+        return;
+    }
     let mut file = read_client_file();
     match method {
         AuthMethod::Microsoft => file.microsoft = client.clone(),
