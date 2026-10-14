@@ -481,7 +481,7 @@ impl App {
             return;
         };
         // Validate up front so recipient errors show in the compose window, like Outlook.
-        if let Err(e) = mime::build_message(&acct.config, &c.draft) {
+        if let Err(e) = mime::build_message(&acct.config, &c.draft, false) {
             c.error = Some(e);
             return;
         }

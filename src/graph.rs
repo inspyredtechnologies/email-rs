@@ -10,29 +10,55 @@ use serde_json::{Value, json};
 
 use crate::calendar::{self, Event, Response};
 
-const BASE: &str = "https://graph.microsoft.com/v1.0";
+pub(crate) const BASE: &str = "https://graph.microsoft.com/v1.0";
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(30)))
+        .timeout_global(Some(Duration::from_secs(60)))
         .build()
         .into()
 }
 
+fn graph_error(status: u16, text: &str) -> String {
+    let msg = serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        .unwrap_or_else(|| text.chars().take(200).collect());
+    format!("Microsoft Graph error {status}: {msg}")
+}
+
 /// Turn a Graph response into JSON, or an error with Graph's message.
-fn read(resp: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<Value, String> {
+pub(crate) fn read(resp: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<Value, String> {
     let resp = resp.map_err(|e| format!("Couldn't reach Microsoft Graph: {e}"))?;
     let status = resp.status();
     let text = resp.into_body().read_to_string().map_err(|e| e.to_string())?;
     if status.is_success() {
         return Ok(if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text).map_err(|e| e.to_string())? });
     }
-    let msg = serde_json::from_str::<Value>(&text)
-        .ok()
-        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
-        .unwrap_or_else(|| text.chars().take(200).collect());
-    Err(format!("Microsoft Graph error {}: {msg}", status.as_u16()))
+    Err(graph_error(status.as_u16(), &text))
+}
+
+/// Like `read`, for binary bodies (e.g. a message's MIME source).
+pub(crate) fn read_bytes(resp: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<Vec<u8>, String> {
+    let resp = resp.map_err(|e| format!("Couldn't reach Microsoft Graph: {e}"))?;
+    let status = resp.status();
+    let mut body = resp.into_body();
+    let bytes = body.with_config().limit(64 * 1024 * 1024).read_to_vec().map_err(|e| e.to_string())?;
+    if status.is_success() {
+        return Ok(bytes);
+    }
+    Err(graph_error(status.as_u16(), &String::from_utf8_lossy(&bytes)))
+}
+
+/// Percent-encode an id for use as a URL path segment.
+pub(crate) fn seg(id: &str) -> String {
+    id.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'=' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 fn utc_string(ts: i64) -> String {
@@ -64,10 +90,12 @@ fn parse_event(v: &Value, account: &str) -> Option<Event> {
         "notResponded" => Response::NotResponded,
         _ => Response::None,
     };
-    let attendees = v["attendees"]
+    let attendees: Vec<String> = v["attendees"]
         .as_array()
         .map(|a| a.iter().filter_map(|x| x["emailAddress"]["address"].as_str().map(str::to_string)).collect())
         .unwrap_or_default();
+    // Graph says "organizer" for your own plain appointments too; those aren't meetings.
+    let response = if attendees.is_empty() && response == Response::Organizer { Response::None } else { response };
     Some(Event {
         id: v["id"].as_str()?.to_string(),
         calendar: account.to_string(),

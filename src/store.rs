@@ -94,6 +94,9 @@ pub fn save_folders(account_id: &str, folders: &[Folder]) {
 pub struct FolderCache {
     pub uid_validity: u32,
     pub messages: Vec<MessageMeta>,
+    /// Graph / EWS: next local number to give a newly seen message.
+    #[serde(default)]
+    pub next_uid: u32,
 }
 
 pub fn load_folder_cache(account_id: &str, folder: &str) -> FolderCache {

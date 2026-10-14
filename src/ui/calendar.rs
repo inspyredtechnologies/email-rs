@@ -9,7 +9,6 @@ use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Sense, Stroke,
 
 use crate::app::{Action, App};
 use crate::calendar::{self, Event, LOCAL, Response};
-use crate::model::AuthMethod;
 use crate::theme::{self, BLUE, BORDER, SUBTLE, icon};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -27,7 +26,7 @@ pub struct CalendarState {
     /// First day of the month shown in the date navigator.
     pub nav_month: NaiveDate,
     pub local: Vec<Event>,
-    /// Microsoft calendars, by account id.
+    /// Server calendars (Microsoft Graph / Exchange), by account id.
     pub remote: HashMap<String, Vec<Event>>,
     /// Calendars unchecked in "My Calendars".
     pub hidden: HashSet<String>,
@@ -37,7 +36,7 @@ pub struct CalendarState {
     pub needs_connect: HashSet<String>,
     pub connecting: Option<(String, Receiver<Result<(), String>>)>,
     pub errors: HashMap<String, String>,
-    /// Range last requested from each Microsoft account.
+    /// Range last requested from each server calendar.
     pub synced: HashMap<String, (i64, i64)>,
     pub editors: Vec<super::appointment::Editor>,
     pub next_editor: u64,
@@ -106,10 +105,10 @@ impl CalendarState {
     }
 }
 
-/// (calendar id, label, color) for "My Calendars": the local one plus each Microsoft account.
+/// (calendar id, label, color) for "My Calendars": the local one plus each account with a server calendar.
 pub fn calendars(app: &App) -> Vec<(String, String, Color32)> {
     let mut out = vec![(LOCAL.to_string(), "Calendar".to_string(), PALETTE[0])];
-    for (i, a) in app.accounts.iter().filter(|a| a.config.auth == AuthMethod::Microsoft).enumerate() {
+    for (i, a) in app.accounts.iter().filter(|a| a.config.has_server_calendar()).enumerate() {
         out.push((a.config.id.clone(), format!("Calendar - {}", a.config.email), PALETTE[(i + 1) % PALETTE.len()]));
     }
     out

@@ -16,6 +16,34 @@ pub struct AccountConfig {
     pub smtp_port: u16,
     #[serde(default)]
     pub auth: AuthMethod,
+    /// How mail and calendar are reached.
+    #[serde(default)]
+    pub protocol: Protocol,
+    /// Exchange Server: the EWS endpoint (found by Autodiscover when empty).
+    #[serde(default)]
+    pub ews_url: String,
+}
+
+impl AccountConfig {
+    /// Whether the account has a calendar on the server (Microsoft Graph or EWS).
+    pub fn has_server_calendar(&self) -> bool {
+        match self.protocol {
+            Protocol::Graph | Protocol::Ews => true,
+            Protocol::Imap => self.auth == AuthMethod::Microsoft,
+        }
+    }
+}
+
+/// The protocol family an account uses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Protocol {
+    /// IMAP + SMTP (any provider; Microsoft accounts get their calendar via Graph).
+    #[default]
+    Imap,
+    /// Microsoft Graph: Microsoft 365 / Exchange Online and Outlook.com.
+    Graph,
+    /// Exchange Web Services: Exchange Server (on-premises).
+    Ews,
 }
 
 /// How the account signs in to IMAP/SMTP.
@@ -30,7 +58,7 @@ pub enum AuthMethod {
 }
 
 /// Outlook's well-known folders, detected from IMAP SPECIAL-USE attributes or names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum FolderKind {
     Inbox,
     Drafts,
@@ -38,18 +66,23 @@ pub enum FolderKind {
     Deleted,
     Archive,
     Junk,
+    #[default]
     Other,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Folder {
-    /// Full IMAP mailbox name, e.g. `INBOX` or `[Gmail]/Sent Mail`.
+    /// Full IMAP mailbox name (e.g. `INBOX`, `[Gmail]/Sent Mail`); for Graph and
+    /// EWS the display path (`Projects/Northwind`) with `/` as the delimiter.
     pub path: String,
     pub delimiter: Option<String>,
     pub kind: FolderKind,
     pub selectable: bool,
     pub unread: u32,
     pub total: u32,
+    /// Graph / EWS folder id (empty for IMAP).
+    #[serde(default)]
+    pub remote_id: String,
 }
 
 impl Folder {
@@ -115,9 +148,13 @@ pub fn classify_folder(path: &str, attributes: &[String]) -> FolderKind {
 }
 
 /// Header-level information about a message, enough to draw the message list.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MessageMeta {
+    /// IMAP UID, or a local number assigned to a Graph / EWS message.
     pub uid: u32,
+    /// Graph / EWS item id (empty for IMAP).
+    #[serde(default)]
+    pub remote_id: String,
     pub from_name: String,
     pub from_addr: String,
     pub to: String,
@@ -208,6 +245,7 @@ mod tests {
             selectable: true,
             unread: 0,
             total: 0,
+            ..Default::default()
         };
         assert_eq!(f.leaf_name(), "Acme");
         assert_eq!(f.depth(), 2);

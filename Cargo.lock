@@ -3380,10 +3380,12 @@ dependencies = [
  "open",
  "png",
  "rfd",
+ "roxmltree",
  "serde",
  "serde_json",
  "sha2 0.11.1",
  "ureq",
+ "windows-sys 0.61.2",
  "winresource",
  "wry",
 ]
@@ -3981,6 +3983,15 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

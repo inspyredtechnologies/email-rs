@@ -31,13 +31,14 @@ pub fn when_text(start: i64, end: i64, all_day: bool) -> String {
 impl App {
     pub(super) fn load_calendars(&mut self) {
         self.cal.local = calendar::load(LOCAL);
-        for id in self.microsoft_accounts() {
+        for id in self.calendar_accounts() {
             self.cal.remote.insert(id.clone(), calendar::load(&id));
         }
     }
 
-    fn microsoft_accounts(&self) -> Vec<String> {
-        self.accounts.iter().filter(|a| a.config.auth == AuthMethod::Microsoft).map(|a| a.config.id.clone()).collect()
+    /// Accounts whose calendar lives on the server (Microsoft Graph or Exchange).
+    fn calendar_accounts(&self) -> Vec<String> {
+        self.accounts.iter().filter(|a| a.config.has_server_calendar()).map(|a| a.config.id.clone()).collect()
     }
 
     fn save_local(&self) {
@@ -47,7 +48,7 @@ impl App {
         }
     }
 
-    /// Each frame: finish a pending calendar connection, and keep Microsoft
+    /// Each frame: finish a pending calendar connection, and keep server
     /// calendars synced for the visible range while the calendar is open.
     pub(super) fn calendar_tick(&mut self) {
         if let Some((acct, rx)) = &self.cal.connecting {
@@ -72,7 +73,7 @@ impl App {
         let days = self.cal.days();
         let from = calendar::day_bounds(days[0]).0;
         let to = calendar::day_bounds(*days.last().unwrap()).1;
-        for acct in self.microsoft_accounts() {
+        for acct in self.calendar_accounts() {
             if self.cal.needs_connect.contains(&acct) || !self.workers.contains_key(&acct) {
                 continue;
             }
@@ -124,9 +125,9 @@ impl App {
             let now = Local::now().timestamp();
             (now / 1800 + 1) * 1800
         });
-        // New items go to the first connected Microsoft calendar, else the local one.
+        // New items go to the first connected server calendar, else the local one.
         let calendar = self
-            .microsoft_accounts()
+            .calendar_accounts()
             .into_iter()
             .find(|a| !self.cal.needs_connect.contains(a) && self.workers.contains_key(a))
             .unwrap_or_else(|| LOCAL.to_string());
@@ -236,7 +237,7 @@ impl App {
     /// Accept / Tentative / Decline on an invite in the reading pane.
     pub(super) fn respond_invite(&mut self, response: Response) {
         let Some(inv) = self.selected_body().and_then(|b| b.invite.clone()) else { return };
-        // Exchange puts invitations on the Microsoft calendar itself: respond there.
+        // Exchange puts invitations on the server calendar itself: respond there.
         if let Some(e) = self.cal.remote.values().flatten().find(|e| e.uid == inv.uid).cloned() {
             self.respond_event(e, response);
             return;
@@ -349,7 +350,7 @@ impl App {
             return;
         }
         let Some(acct) = self.account(&draft.account_id).map(|a| a.config.clone()) else { return };
-        match mime::build_message(&acct, &draft) {
+        match mime::build_message(&acct, &draft, false) {
             Ok(_) => self.send_cmd(&acct.id, Command::Send(Box::new(draft))),
             Err(e) => self.alert = Some(e),
         }

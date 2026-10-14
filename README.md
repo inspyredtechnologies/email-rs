@@ -23,7 +23,11 @@ This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. T
 ## What works
 
 - **Layout:** ribbon (File / Home / Send / Receive / Folder / View), folder pane with Favorites and unread counts, a three-line message list grouped by date (Today, Yesterday, weekday, Last Week…), reading pane, navigation bar, and status bar.
-- **Mail over IMAP/SMTP:** folder sync with SPECIAL-USE detection (Inbox, Sent Items, Deleted Items, Junk Email…), a local cache of the newest 500 messages per folder, previews for the newest 25, read/unread, flags, Move, Archive, and Delete (to Deleted Items, or permanent when already there).
+- **Three kinds of account**, with the type detected from your email domain:
+  - **Microsoft 365 / Outlook.com:** mail and calendar through Microsoft Graph with one Microsoft sign-in. IMAP and SMTP don't need to be enabled.
+  - **Exchange Server (on-premises):** mail and calendar through Exchange Web Services (EWS), with Autodiscover to find the server. Sign-in uses Windows' own HTTP stack (WinHTTP), so Kerberos/NTLM, Extended Protection, proxies and company certificates work.
+  - **IMAP / SMTP:** any provider, signing in with a password, Microsoft or Google.
+- **Mail:** folder sync with SPECIAL-USE detection (Inbox, Sent Items, Deleted Items, Junk Email…), a local cache of the newest 500 messages per folder, previews for the newest 25, read/unread, flags, Move, Archive, and Delete (to Deleted Items, or permanent when already there).
 - **HTML mail:** rendered with WebView2 (built into Windows 10/11) in the reading pane. Scripts are disabled, and a Content-Security-Policy blocks remote pictures and tracking pixels until you click "Click here to download pictures". Embedded (`cid:`) images display inline. Links open in your browser, and `mailto:` links open a new message.
 - **Compose:** opens in its own window with From / To / Cc / Bcc / Subject and attachments. HTML is the default format, with bold, italic, underline (Ctrl+B / I / U), strikethrough, font size, font color, highlight, bullets and numbering; URLs become links. Mail is sent as multipart/alternative (plain text + HTML); switch Format to Plain Text to send text only. Reply, Reply All and Forward quote the original Outlook-style, including the original's HTML. Sent mail is saved to Sent Items, except on Gmail and Microsoft 365, which do that themselves.
 - **Calendar:**
@@ -34,7 +38,7 @@ This builds a release exe and writes `target\wix\OutlookRS-<version>-x64.msi`. T
   - On a Microsoft calendar, the response goes through Graph.
   - Otherwise it's emailed to the organizer as a standard iCalendar reply (iMIP) and the meeting is added to the local calendar. Cancellations offer "Remove from Calendar".
   - Meetings you organize on the local calendar email iCalendar invitations, updates and cancellations to attendees.
-- **Accounts:** Add Account with presets for Outlook.com, Gmail, Yahoo, iCloud, Fastmail and AOL, plus a live connection test. Three sign-in methods: password, **Microsoft** (Outlook.com, Hotmail, Microsoft 365 / Exchange Online) and **Google**. The last two use OAuth 2.0 in your browser (XOAUTH2), so Outlook RS never sees your password. Passwords and refresh tokens are stored in Windows Credential Manager.
+- **Accounts:** Add Account picks the account type from your email domain. It has presets for Gmail, Yahoo, iCloud, Fastmail and AOL, and tests the connection before saving. Microsoft and Google sign-in use OAuth 2.0 in your browser, so Outlook RS never sees those passwords. Passwords and refresh tokens are stored in Windows Credential Manager.
 - **Shortcuts:**
 
   | Keys | Action |
@@ -60,8 +64,8 @@ Microsoft and Google only allow OAuth sign-in through an *app registration*. Cre
 2. For supported account types, choose **Accounts in any organizational directory and personal Microsoft accounts**.
 3. Under Redirect URI, choose platform **Public client/native (mobile & desktop)** with value `http://localhost`, then click **Register**.
 4. Copy the **Application (client) ID** into the Client ID field.
-5. For work or school accounts: under **API permissions**, add *Office 365 Exchange Online* > Delegated > `IMAP.AccessAsUser.All` and `SMTP.Send`. Your admin may need to grant consent, and must have IMAP and Authenticated SMTP enabled for the mailbox.
-6. For the calendar, also add *Microsoft Graph* > Delegated > `Calendars.ReadWrite`. The first time you open the Calendar, Outlook RS tries to reuse your mail sign-in. If Microsoft needs separate consent, "Connect this calendar..." appears under My Calendars and runs a one-time browser sign-in.
+5. Under **API permissions**, add *Microsoft Graph* > Delegated > `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite` and `offline_access`. That's all the "Microsoft 365 / Outlook.com" account type needs. Your organization's admin may need to grant consent once.
+6. Only for Microsoft accounts set up as "IMAP / SMTP": also add `IMAP.AccessAsUser.All` and `SMTP.Send`, and have the admin enable IMAP and Authenticated SMTP for the mailbox. For the calendar on such an account, "Connect this calendar..." under My Calendars runs a one-time extra sign-in if needed.
 
 **Google (Gmail, Google Workspace)**
 
@@ -76,7 +80,9 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 ## Limitations
 
 - In replies and forwards the quoted original can't be edited (it's shown below your text and sent as-is). There's no font-face picker, inline images, tables or signatures.
-- Exchange is reached over IMAP/SMTP only, with no EWS or MAPI. On-premises Exchange works with the Password method if its admin has enabled IMAP.
+- Exchange: no contacts / address book, shared mailboxes, server-side rules or online archive yet. Exchange Server needs EWS on the Exchange 2013 or later schema.
+- Microsoft 365: sending through Graph is limited to about 3 MB of attachments per message.
+- Building currently requires Windows.
 - People and Tasks are placeholders.
 - Calendar: no reminders, no recurring events of your own, and no Google or CalDAV calendar sync. For invites handled on the local calendar, only the first occurrence of a recurring meeting is added.
 - No PST/OST import, drafts saving, rules, or IMAP IDLE (it polls every 10 minutes and on F9).
@@ -85,7 +91,9 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 
 | Path | Purpose |
 | --- | --- |
-| `src/worker.rs` | One background thread per account; all IMAP/SMTP I/O and cache writes |
+| `src/worker.rs` | One background thread per account: cache, previews and UI events, independent of protocol |
+| `src/backend/` | `imap.rs` (IMAP/SMTP), `graph_mail.rs` (Microsoft Graph mail), `ews.rs` (Exchange Web Services and Autodiscover) |
+| `src/winhttp.rs` | WinHTTP client used for Exchange Server (Negotiate/NTLM/Basic) |
 | `src/app.rs` | UI state, action queue, keyboard shortcuts |
 | `src/ui/` | Ribbon, folder pane, list, reading pane, compose, account dialogs |
 | `src/mime.rs` | Message parsing, reply/forward building, outgoing MIME |
@@ -96,4 +104,4 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 | `src/store.rs` | Cache in `%APPDATA%\OutlookRs\data`, Credential Manager passwords |
 | `assets/`, `build.rs` | App icon (`make-icon.py` regenerates `icon.ico` / `icon.png` with Pillow), embedded into the exe at build time |
 
-`cargo test` runs the unit tests (`cargo test -- --ignored` adds checks against Microsoft's live token and Graph endpoints). To capture the window to a PNG and exit, run `outlook-rs --demo --screenshot out.png`.
+`cargo test` runs the unit tests (`cargo test -- --ignored` adds checks against Microsoft's live sign-in, Graph and Exchange endpoints). To capture the window to a PNG and exit, run `outlook-rs --demo --screenshot out.png`.

@@ -269,6 +269,10 @@ fn token_request(p: &Provider, form: &[(&str, &str)]) -> Result<Tokens, String> 
 /// Microsoft Graph scopes for the calendar (a separate token from IMAP/SMTP's).
 pub const GRAPH_CALENDAR_SCOPES: &str = "https://graph.microsoft.com/Calendars.ReadWrite offline_access";
 
+/// Microsoft Graph scopes for Graph-protocol accounts: mail and calendar with one sign-in.
+pub const GRAPH_MAIL_SCOPES: &str = "https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send \
+    https://graph.microsoft.com/Calendars.ReadWrite offline_access";
+
 /// The provider, with its default mail scopes unless `scopes` overrides them.
 fn require_client(method: AuthMethod, client: &ClientConfig, scopes: Option<&'static str>) -> Result<Provider, String> {
     let mut p = provider(method).ok_or("This account doesn't use OAuth sign-in.")?;
@@ -288,12 +292,8 @@ fn require_client(method: AuthMethod, client: &ClientConfig, scopes: Option<&'st
 }
 
 /// Interactive sign-in: opens the browser and blocks until the redirect arrives
-/// (or `cancel` is set). Returns tokens including a refresh token.
-pub fn sign_in(method: AuthMethod, client: &ClientConfig, login_hint: &str, cancel: Arc<AtomicBool>) -> Result<Tokens, String> {
-    sign_in_scoped(method, client, login_hint, cancel, None)
-}
-
-/// `sign_in` for specific scopes (e.g. `GRAPH_CALENDAR_SCOPES`).
+/// (or `cancel` is set). Returns tokens including a refresh token. `scopes`
+/// overrides the provider's IMAP/SMTP scopes (e.g. `GRAPH_MAIL_SCOPES`).
 pub fn sign_in_scoped(
     method: AuthMethod,
     client: &ClientConfig,
@@ -331,12 +331,8 @@ pub fn sign_in_scoped(
 
 /// Exchange a stored refresh token for a fresh access token. Providers may rotate
 /// the refresh token; callers should store `refresh_token` when it's `Some`.
-pub fn refresh(method: AuthMethod, client: &ClientConfig, refresh_token: &str) -> Result<Tokens, String> {
-    refresh_scoped(method, client, refresh_token, None).map_err(|e| format!("{e} Open File > Account Settings and sign in again."))
-}
-
-/// `refresh` for specific scopes. Microsoft lets a refresh token mint tokens for
-/// another resource the user has already consented to.
+/// Microsoft lets a refresh token mint tokens for another resource the user has
+/// already consented to, so `scopes` may differ from the original sign-in's.
 pub fn refresh_scoped(method: AuthMethod, client: &ClientConfig, refresh_token: &str, scopes: Option<&'static str>) -> Result<Tokens, String> {
     let p = require_client(method, client, scopes)?;
     let mut form = vec![
@@ -415,7 +411,7 @@ mod tests {
     #[ignore]
     fn microsoft_token_endpoint_reports_errors() {
         let client = ClientConfig { client_id: "00000000-0000-0000-0000-000000000000".into(), client_secret: String::new() };
-        let err = refresh(AuthMethod::Microsoft, &client, "not-a-real-token").unwrap_err();
+        let err = refresh_scoped(AuthMethod::Microsoft, &client, "not-a-real-token", None).unwrap_err();
         assert!(err.starts_with("Sign-in failed ("), "{err}");
     }
 

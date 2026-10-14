@@ -41,7 +41,7 @@ pub fn parse_meta(uid: u32, raw: &[u8]) -> MessageMeta {
         // From headers alone, multipart/mixed is the usual signal for attachments.
         has_attachments: content_type == "multipart/mixed",
         size: raw.len() as u32,
-        preview: String::new(),
+        ..Default::default()
     }
 }
 
@@ -275,13 +275,18 @@ pub fn split_recipients(field: &str) -> Vec<String> {
 }
 
 /// Build the RFC 5322 message to hand to SMTP and to store in Sent Items.
-pub fn build_message(account: &AccountConfig, draft: &Draft) -> Result<lettre::Message, String> {
+/// `keep_bcc` leaves the Bcc header in, for servers that take recipients from
+/// the MIME headers (Microsoft Graph, EWS) rather than an SMTP envelope.
+pub fn build_message(account: &AccountConfig, draft: &Draft, keep_bcc: bool) -> Result<lettre::Message, String> {
     use lettre::message::{Attachment as LAttachment, MultiPart, SinglePart, header::ContentType};
 
     let from = format!("{} <{}>", account.display_name, account.email)
         .parse()
         .map_err(|e| format!("Invalid sender address: {e}"))?;
     let mut builder = lettre::Message::builder().from(from).subject(draft.subject.clone());
+    if keep_bcc {
+        builder = builder.keep_bcc();
+    }
     let mut any_recipient = false;
     for (field, kind) in [(&draft.to, 0), (&draft.cc, 1), (&draft.bcc, 2)] {
         for r in split_recipients(field) {
@@ -402,7 +407,7 @@ Hi team,\r\nHere are the numbers.\r\n";
         let mut d = make_reply(&account(), &parse_body(SAMPLE), ReplyKind::Reply);
         d.body = "Thanks!".into();
         d.body_styles = vec![crate::rich::Style { bold: true, ..Default::default() }; 7];
-        let msg = build_message(&account(), &d).unwrap();
+        let msg = build_message(&account(), &d, false).unwrap();
         let raw = String::from_utf8(msg.formatted()).unwrap();
         assert!(raw.contains("In-Reply-To: <abc123@example.com>"));
         assert!(raw.contains("Subject: RE: Quarterly numbers"));
@@ -417,10 +422,10 @@ Hi team,\r\nHere are the numbers.\r\n";
         assert!(sent.text.starts_with("Thanks!"));
 
         d.plain_text = true;
-        let raw = String::from_utf8(build_message(&account(), &d).unwrap().formatted()).unwrap();
+        let raw = String::from_utf8(build_message(&account(), &d, false).unwrap().formatted()).unwrap();
         assert!(!raw.contains("text/html"));
         d.to.clear();
-        assert!(build_message(&account(), &d).is_err());
+        assert!(build_message(&account(), &d, false).is_err());
     }
 
     #[test]
@@ -449,7 +454,7 @@ Hi team,\r\nHere are the numbers.\r\n";
             calendar: Some(("REPLY".into(), crate::ics::write("REPLY", &spec))),
             ..Default::default()
         };
-        let raw = build_message(&account(), &draft).unwrap().formatted();
+        let raw = build_message(&account(), &draft, false).unwrap().formatted();
         let text = String::from_utf8_lossy(&raw);
         assert!(text.contains("Content-Type: text/calendar; method=REPLY; charset=utf-8"));
         let parsed = parse_body(&raw);

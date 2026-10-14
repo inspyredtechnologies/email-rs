@@ -14,7 +14,7 @@ pub fn account() -> AccountConfig {
 }
 
 fn folder(path: &str, kind: FolderKind, unread: u32, total: u32) -> Folder {
-    Folder { path: path.into(), delimiter: Some("/".into()), kind, selectable: true, unread, total }
+    Folder { path: path.into(), delimiter: Some("/".into()), kind, selectable: true, unread, total, ..Default::default() }
 }
 
 pub fn folders() -> Vec<Folder> {
@@ -73,6 +73,7 @@ pub fn messages(now: i64) -> Vec<(String, MessageMeta, MessageBody)> {
                 has_attachments: *has_att,
                 size: text.len() as u32,
                 preview: text.split_whitespace().collect::<Vec<_>>().join(" "),
+                ..Default::default()
             };
             let body = MessageBody {
                 subject: subject.to_string(),

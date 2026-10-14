@@ -5,6 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod backend;
 mod calendar;
 mod demo;
 mod graph;
@@ -19,6 +20,7 @@ mod theme;
 mod ui;
 #[cfg(windows)]
 mod webview;
+mod winhttp;
 mod worker;
 
 use std::path::{Path, PathBuf};
