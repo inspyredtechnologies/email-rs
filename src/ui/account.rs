@@ -1,4 +1,4 @@
-﻿//! Add/Edit Account dialog (provider auto-configuration, password or OAuth
+//! Add/Edit Account dialog (provider auto-configuration, password or OAuth
 //! sign-in, and a live connection test) and the File tab "backstage" view.
 
 use std::sync::Arc;

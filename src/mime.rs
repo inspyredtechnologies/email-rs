@@ -145,6 +145,66 @@ fn quote_block(orig: &MessageBody) -> String {
     s
 }
 
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// Plain text as HTML, keeping line breaks.
+pub fn text_to_html(text: &str) -> String {
+    escape_html(text).replace("\r\n", "\n").replace('\n', "<br>")
+}
+
+/// The inside of an HTML document's `<body>`, without scripts.
+fn body_inner(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let start = lower.find("<body").and_then(|i| lower[i..].find('>').map(|j| i + j + 1)).unwrap_or(0);
+    let end = lower[start..].rfind("</body").map(|i| start + i).unwrap_or(html.len());
+    let (mut inner, mut lower) = (html[start..end].to_string(), lower[start..end].to_string());
+    while let Some(i) = lower.find("<script") {
+        let j = lower[i..].find("</script>").map(|j| i + j + "</script>".len()).unwrap_or(lower.len());
+        inner.replace_range(i..j, "");
+        lower.replace_range(i..j, "");
+    }
+    inner
+}
+
+/// Outlook's HTML reply header (its `divRplyFwdMsg` block) followed by the original.
+fn quote_html(orig: &MessageBody) -> String {
+    let mut header = format!(
+        "<b>From:</b> {}<br><b>Sent:</b> {}<br><b>To:</b> {}<br>",
+        escape_html(&orig.from),
+        escape_html(&long_date(orig.date)),
+        escape_html(&orig.to)
+    );
+    if !orig.cc.is_empty() {
+        header += &format!("<b>Cc:</b> {}<br>", escape_html(&orig.cc));
+    }
+    header += &format!("<b>Subject:</b> {}", escape_html(&orig.subject));
+    let original = match &orig.html {
+        Some(h) => body_inner(h),
+        None => format!("<div>{}</div>", text_to_html(&orig.text)),
+    };
+    format!(
+        "<div><br></div><hr style=\"display:inline-block;width:98%\" tabindex=\"-1\">\
+         <div id=\"divRplyFwdMsg\" dir=\"ltr\"><font face=\"Calibri, sans-serif\" style=\"font-size:11pt\" color=\"#000000\">\
+         {header}</font><div>&nbsp;</div></div>{original}"
+    )
+}
+
+/// The HTML part: the user's formatted text in Outlook's default font, then the quote.
+pub fn html_document(draft: &Draft) -> String {
+    let quote = match &draft.quote_html {
+        Some(q) => q.clone(),
+        None => text_to_html(&draft.quote_text),
+    };
+    format!(
+        "<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"></head><body>\
+         <div style=\"font-family:Calibri,Arial,Helvetica,sans-serif;font-size:11pt;color:#000000\">{}</div>{quote}</body></html>",
+        crate::rich::to_html(&draft.body, &draft.body_styles)
+    )
+}
+
+#[derive(Clone, Copy)]
 pub enum ReplyKind {
     Reply,
     ReplyAll,
@@ -181,7 +241,8 @@ pub fn make_reply(account: &AccountConfig, orig: &MessageBody, kind: ReplyKind) 
         to,
         cc,
         subject,
-        body: quote_block(orig),
+        quote_text: quote_block(orig),
+        quote_html: Some(quote_html(orig)),
         in_reply_to: if is_forward { None } else { orig.message_id.clone() },
         references: if is_forward { Vec::new() } else { references },
         ..Default::default()
@@ -229,11 +290,17 @@ pub fn build_message(account: &AccountConfig, draft: &Draft) -> Result<lettre::M
         builder = builder.references(refs.join(" "));
     }
 
-    let text = SinglePart::plain(draft.body.clone());
+    // Plain text alone, or text + HTML alternatives (what Outlook sends for HTML mail).
+    let plain = format!("{}{}", draft.body, draft.quote_text);
+    let alternative = || MultiPart::alternative_plain_html(plain.clone(), html_document(draft));
     let result = if draft.attachments.is_empty() {
-        builder.singlepart(text)
+        if draft.plain_text { builder.singlepart(SinglePart::plain(plain.clone())) } else { builder.multipart(alternative()) }
     } else {
-        let mut mp = MultiPart::mixed().singlepart(text);
+        let mut mp = if draft.plain_text {
+            MultiPart::mixed().singlepart(SinglePart::plain(plain.clone()))
+        } else {
+            MultiPart::mixed().multipart(alternative())
+        };
         for path in &draft.attachments {
             let data = std::fs::read(path).map_err(|e| format!("Cannot attach {}: {e}", path.display()))?;
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -291,7 +358,11 @@ Hi team,\r\nHere are the numbers.\r\n";
         assert_eq!(d.to, "Alice Smith <alice@example.com>");
         assert_eq!(d.cc, "Bob <bob@example.com>; carol@example.com");
         assert_eq!(d.in_reply_to.as_deref(), Some("abc123@example.com"));
-        assert!(d.body.contains("Subject: Quarterly numbers"));
+        assert!(d.body.is_empty());
+        assert!(d.quote_text.contains("Subject: Quarterly numbers"));
+        let quote = d.quote_html.as_deref().unwrap();
+        assert!(quote.contains("<b>From:</b> Alice Smith &lt;alice@example.com&gt;<br>"));
+        assert!(quote.contains("Hi team,<br>Here are the numbers."));
         let again = make_reply(&account(), &MessageBody { subject: d.subject.clone(), ..body.clone() }, ReplyKind::Reply);
         assert_eq!(again.subject, "RE: Quarterly numbers");
         let fw = make_reply(&account(), &body, ReplyKind::Forward);
@@ -302,12 +373,39 @@ Hi team,\r\nHere are the numbers.\r\n";
     #[test]
     fn builds_outgoing_message() {
         let mut d = make_reply(&account(), &parse_body(SAMPLE), ReplyKind::Reply);
-        d.body = "Thanks!".into() ;
+        d.body = "Thanks!".into();
+        d.body_styles = vec![crate::rich::Style { bold: true, ..Default::default() }; 7];
         let msg = build_message(&account(), &d).unwrap();
         let raw = String::from_utf8(msg.formatted()).unwrap();
         assert!(raw.contains("In-Reply-To: <abc123@example.com>"));
         assert!(raw.contains("Subject: RE: Quarterly numbers"));
+        assert!(raw.contains("Content-Type: multipart/alternative"));
+        assert!(raw.contains("Content-Type: text/html; charset=utf-8"));
+
+        // The HTML part round-trips through our own parser.
+        let sent = parse_body(&msg.formatted());
+        let html = sent.html.expect("html part");
+        assert!(html.contains("<span style=\"font-weight:bold\">Thanks!</span>"));
+        assert!(html.contains("divRplyFwdMsg"));
+        assert!(sent.text.starts_with("Thanks!"));
+
+        d.plain_text = true;
+        let raw = String::from_utf8(build_message(&account(), &d).unwrap().formatted()).unwrap();
+        assert!(!raw.contains("text/html"));
         d.to.clear();
         assert!(build_message(&account(), &d).is_err());
+    }
+
+    #[test]
+    fn quotes_html_original_without_scripts() {
+        let orig = MessageBody {
+            from: "A <a@x>".into(),
+            subject: "Hi".into(),
+            html: Some("<html><head><title>t</title></head><BODY class=x><p>Hello</p><script>alert(1)</script></body></html>".into()),
+            ..Default::default()
+        };
+        let q = quote_html(&orig);
+        assert!(q.ends_with("<p>Hello</p>"));
+        assert!(!q.contains("script") && !q.contains("<title>"));
     }
 }

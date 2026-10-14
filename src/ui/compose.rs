@@ -1,10 +1,37 @@
 //! Compose window: each draft opens in its own OS window, like Outlook's
 //! Message inspector, with the big Send button beside the address fields.
 
-use eframe::egui::{self, Align2, CentralPanel, Color32, FontId, Frame, Margin, Panel, RichText, Sense, Stroke, Ui, vec2};
+use eframe::egui::text::LayoutJob;
+use eframe::egui::{self, Align2, CentralPanel, Color32, FontFamily, FontId, Frame, Margin, Panel, RichText, Sense, Stroke, TextFormat, Ui, vec2};
 
 use crate::app::{Action, App, Composer};
-use crate::theme::{self, BLUE, BORDER, RIBBON_BG, icon};
+use crate::rich::{self, Size, Style};
+use crate::theme::{self, BLUE, BORDER, RIBBON_BG, SUBTLE, icon};
+
+/// Outlook's standard font colors and highlight colors.
+const FONT_COLORS: [(&str, [u8; 3]); 10] = [
+    ("Dark Red", [0xC0, 0x00, 0x00]),
+    ("Red", [0xFF, 0x00, 0x00]),
+    ("Orange", [0xFF, 0xC0, 0x00]),
+    ("Yellow", [0xFF, 0xFF, 0x00]),
+    ("Light Green", [0x92, 0xD0, 0x50]),
+    ("Green", [0x00, 0xB0, 0x50]),
+    ("Light Blue", [0x00, 0xB0, 0xF0]),
+    ("Blue", [0x00, 0x70, 0xC0]),
+    ("Dark Blue", [0x00, 0x20, 0x60]),
+    ("Purple", [0x70, 0x30, 0xA0]),
+];
+const HIGHLIGHTS: [(&str, [u8; 3]); 5] = [
+    ("Yellow", [0xFF, 0xFF, 0x00]),
+    ("Bright Green", [0x00, 0xFF, 0x00]),
+    ("Turquoise", [0x00, 0xFF, 0xFF]),
+    ("Pink", [0xFF, 0x00, 0xFF]),
+    ("Gray", [0xC0, 0xC0, 0xC0]),
+];
+
+fn rgb(c: [u8; 3]) -> Color32 {
+    Color32::from_rgb(c[0], c[1], c[2])
+}
 
 fn viewport_id(id: u64) -> egui::ViewportId {
     egui::ViewportId::from_hash_of(("compose", id))
@@ -17,7 +44,7 @@ pub fn show_all(app: &mut App, ctx: &egui::Context) {
     for c in app.composers.iter_mut() {
         let subject = if c.draft.subject.trim().is_empty() { "Untitled" } else { c.draft.subject.trim() };
         let builder = egui::ViewportBuilder::default()
-            .with_title(format!("{subject} - Message (Plain Text)"))
+            .with_title(format!("{subject} - Message ({})", if c.draft.plain_text { "Plain Text" } else { "HTML" }))
             .with_inner_size([780.0, 640.0])
             .with_min_inner_size([520.0, 380.0]);
         ctx.show_viewport_immediate(viewport_id(c.id), builder, |ui, class| {
@@ -81,7 +108,18 @@ fn window(c: &mut Composer, accounts: &[(String, String)], ui: &mut Ui) -> bool 
                     c.open = false;
                 }
             }
+            ui.separator();
+            // Format Text: HTML or plain text (formatting is kept, just not sent, in plain text).
+            ui.label(RichText::new("Format:").color(SUBTLE));
+            ui.radio_value(&mut c.draft.plain_text, false, "HTML");
+            ui.radio_value(&mut c.draft.plain_text, true, "Plain Text");
         });
+        if !c.draft.plain_text {
+            ui.horizontal(|ui| {
+                ui.add_space(6.0);
+                format_toolbar(c, ui);
+            });
+        }
         ui.add_space(4.0);
         let y = ui.cursor().top();
         ui.painter().hline(ui.max_rect().x_range(), y, Stroke::new(1.0, BORDER));
@@ -158,14 +196,10 @@ fn window(c: &mut Composer, accounts: &[(String, String)], ui: &mut Ui) -> bool 
         ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, BORDER));
         ui.add_space(8.0);
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            let edit = egui::TextEdit::multiline(&mut c.draft.body)
-                .frame(egui::Frame::NONE)
-                .desired_width(f32::INFINITY)
-                .desired_rows(20)
-                .font(FontId::proportional(14.5));
-            let resp = ui.add_sized(ui.available_size(), edit);
-            if focus_body {
-                resp.request_focus();
+            body_editor(c, ui, focus_body);
+            // The quoted original (shown as text; the HTML version is what gets sent).
+            if !c.draft.quote_text.is_empty() {
+                ui.add(egui::Label::new(RichText::new(c.draft.quote_text.trim_start()).color(SUBTLE).size(13.5)).wrap());
             }
         });
     });
@@ -205,6 +239,215 @@ fn window(c: &mut Composer, accounts: &[(String, String)], ui: &mut Ui) -> bool 
         }
     }
     send
+}
+
+fn text_format(s: &Style) -> TextFormat {
+    let size = match s.size {
+        Size::Small => 12.0,
+        Size::Normal => 14.5,
+        Size::Large => 18.5,
+        Size::Huge => 24.0,
+    };
+    let family = if s.bold { theme::bold_family() } else { FontFamily::Proportional };
+    let color = s.color.map(rgb).unwrap_or(theme::TEXT);
+    let line = |on: bool| if on { Stroke::new(1.0, color) } else { Stroke::NONE };
+    TextFormat {
+        font_id: FontId::new(size, family),
+        color,
+        italics: s.italic,
+        underline: line(s.underline),
+        strikethrough: line(s.strike),
+        background: s.highlight.map(rgb).unwrap_or(Color32::TRANSPARENT),
+        ..Default::default()
+    }
+}
+
+/// Lay out `text` with one `Style` per character.
+fn styled_job(text: &str, styles: &[Style], typing: Style, wrap_width: f32) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    job.wrap.max_width = wrap_width;
+    if text.is_empty() {
+        job.append("", 0.0, text_format(&typing));
+        return job;
+    }
+    let style_at = |i: usize| styles.get(i).copied().unwrap_or_default();
+    let mut run_start = 0; // byte offset
+    let mut run_style = style_at(0);
+    for (ci, (bi, _)) in text.char_indices().enumerate() {
+        let s = style_at(ci);
+        if s != run_style {
+            job.append(&text[run_start..bi], 0.0, text_format(&run_style));
+            run_start = bi;
+            run_style = s;
+        }
+    }
+    job.append(&text[run_start..], 0.0, text_format(&run_style));
+    job
+}
+
+/// The message body: a multiline editor that renders per-character formatting.
+fn body_editor(c: &mut Composer, ui: &mut Ui, focus: bool) {
+    let char_count = c.draft.body.chars().count();
+    c.draft.body_styles.resize(char_count, Style::default());
+    let before = c.draft.body.clone();
+    let (typing, plain) = (c.typing, c.draft.plain_text);
+    let styles = &c.draft.body_styles;
+    let mut layouter = |ui: &Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
+        let text = buf.as_str();
+        let job = if plain {
+            styled_job(text, &[], Style::default(), wrap_width)
+        } else if text == before {
+            styled_job(text, styles, typing, wrap_width)
+        } else {
+            // Mid-edit this frame: preview the styles the edit will produce.
+            styled_job(text, &rich::reconcile(&before, styles, text, typing), typing, wrap_width)
+        };
+        ui.ctx().fonts_mut(|f| f.layout_job(job))
+    };
+    let min_height = if c.draft.quote_text.is_empty() { ui.available_height() } else { 220.0 };
+    let output = egui::TextEdit::multiline(&mut c.draft.body)
+        .id(egui::Id::new(("compose_body", c.id)))
+        .frame(Frame::NONE)
+        .desired_width(f32::INFINITY)
+        .min_size(vec2(ui.available_width(), min_height))
+        .layouter(&mut layouter)
+        .show(ui);
+
+    let edited = c.draft.body != before;
+    if edited {
+        c.draft.body_styles = rich::reconcile(&before, &c.draft.body_styles, &c.draft.body, c.typing);
+    }
+    if output.response.has_focus() {
+        if let Some(range) = output.cursor_range {
+            let [a, b] = range.sorted_cursors();
+            let sel = (a.index.0, b.index.0);
+            // Moving the caret (not typing) picks up the formatting of the text before it, like Word.
+            if sel != c.selection && sel.0 == sel.1 && !edited {
+                c.typing = sel.0.checked_sub(1).and_then(|i| c.draft.body_styles.get(i).copied()).unwrap_or_default();
+            }
+            c.selection = sel;
+        }
+        if !plain {
+            let shortcut = |key| ui.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key)));
+            if shortcut(egui::Key::B) {
+                toggle(c, |s| s.bold, |s, v| s.bold = v);
+            }
+            if shortcut(egui::Key::I) {
+                toggle(c, |s| s.italic, |s, v| s.italic = v);
+            }
+            if shortcut(egui::Key::U) {
+                toggle(c, |s| s.underline, |s, v| s.underline = v);
+            }
+        }
+    }
+    if focus || std::mem::take(&mut c.refocus) {
+        output.response.request_focus();
+    }
+}
+
+/// Toggle a on/off attribute on the selection, or on the typing style when nothing is selected.
+fn toggle(c: &mut Composer, get: fn(&Style) -> bool, set: fn(&mut Style, bool)) {
+    let (a, b) = c.selection;
+    if a < b {
+        let on = !rich::all(&c.draft.body_styles, a..b, get);
+        rich::apply(&mut c.draft.body_styles, a..b, |s| set(s, on));
+    } else {
+        let on = !get(&c.typing);
+        set(&mut c.typing, on);
+    }
+    c.refocus = true;
+}
+
+/// Apply a formatting change to the selection (or to the typing style).
+fn restyle(c: &mut Composer, f: impl Fn(&mut Style)) {
+    let (a, b) = c.selection;
+    if a < b {
+        rich::apply(&mut c.draft.body_styles, a..b, &f);
+    } else {
+        f(&mut c.typing);
+    }
+    c.refocus = true;
+}
+
+fn swatch(ui: &mut Ui, color: Color32, tip: &str) -> bool {
+    ui.add(egui::Button::new("").fill(color).min_size(vec2(18.0, 18.0))).on_hover_text(tip).clicked()
+}
+
+/// Outlook's Basic Text group: bold/italic/underline/strike, size, color, highlight, lists.
+fn format_toolbar(c: &mut Composer, ui: &mut Ui) {
+    let (a, b) = c.selection;
+    let current = if a < b { c.draft.body_styles.get(a).copied().unwrap_or_default() } else { c.typing };
+    let active = |get: fn(&Style) -> bool| if a < b { rich::all(&c.draft.body_styles, a..b, get) } else { get(&c.typing) };
+    let (bold, italic, underline, strike) = (active(|s| s.bold), active(|s| s.italic), active(|s| s.underline), active(|s| s.strike));
+
+    ui.spacing_mut().item_spacing.x = 3.0;
+    if ui.selectable_label(bold, theme::bold("B", 14.0)).on_hover_text("Bold (Ctrl+B)").clicked() {
+        toggle(c, |s| s.bold, |s, v| s.bold = v);
+    }
+    if ui.selectable_label(italic, RichText::new("I").italics().size(14.0)).on_hover_text("Italic (Ctrl+I)").clicked() {
+        toggle(c, |s| s.italic, |s, v| s.italic = v);
+    }
+    if ui.selectable_label(underline, RichText::new("U").underline().size(14.0)).on_hover_text("Underline (Ctrl+U)").clicked() {
+        toggle(c, |s| s.underline, |s, v| s.underline = v);
+    }
+    if ui.selectable_label(strike, RichText::new("ab").strikethrough().size(14.0)).on_hover_text("Strikethrough").clicked() {
+        toggle(c, |s| s.strike, |s, v| s.strike = v);
+    }
+    ui.separator();
+
+    let mut size = current.size;
+    egui::ComboBox::from_id_salt(("font_size", c.id)).width(48.0).selected_text(size.label()).show_ui(ui, |ui| {
+        for s in Size::ALL {
+            ui.selectable_value(&mut size, s, s.label());
+        }
+    });
+    if size != current.size {
+        restyle(c, |s| s.size = size);
+    }
+
+    let color_btn = ui.button(RichText::new("A").color(current.color.map(rgb).unwrap_or(theme::TEXT)).strong()).on_hover_text("Font Color");
+    egui::Popup::menu(&color_btn).show(|ui| {
+        if ui.button("Automatic").clicked() {
+            restyle(c, |s| s.color = None);
+            ui.close();
+        }
+        ui.horizontal(|ui| {
+            for (name, col) in FONT_COLORS {
+                if swatch(ui, rgb(col), name) {
+                    restyle(c, |s| s.color = Some(col));
+                    ui.close();
+                }
+            }
+        });
+    });
+    let hl_btn = ui
+        .button(RichText::new("ab").background_color(current.highlight.map(rgb).unwrap_or(rgb([0xFF, 0xFF, 0x00]))))
+        .on_hover_text("Text Highlight Color");
+    egui::Popup::menu(&hl_btn).show(|ui| {
+        ui.horizontal(|ui| {
+            for (name, col) in HIGHLIGHTS {
+                if swatch(ui, rgb(col), name) {
+                    restyle(c, |s| s.highlight = Some(col));
+                    ui.close();
+                }
+            }
+        });
+        if ui.button("No Color").clicked() {
+            restyle(c, |s| s.highlight = None);
+            ui.close();
+        }
+    });
+    ui.separator();
+
+    for (label, numbered, tip) in [("\u{2022} \u{2261}", false, "Bullets"), ("1. \u{2261}", true, "Numbering")] {
+        if ui.button(label).on_hover_text(tip).clicked() {
+            rich::toggle_list(&mut c.draft.body, &mut c.draft.body_styles, a..b, numbered);
+            c.refocus = true;
+        }
+    }
+    if ui.button("Clear").on_hover_text("Clear All Formatting").clicked() {
+        restyle(c, |s| *s = Style::default());
+    }
 }
 
 fn field_label(ui: &mut Ui, text: &str) {

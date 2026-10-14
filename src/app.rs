@@ -1,4 +1,4 @@
-﻿//! Application state, the action queue the UI feeds, and worker event handling.
+//! Application state, the action queue the UI feeds, and worker event handling.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -65,6 +65,12 @@ pub struct Composer {
     pub error: Option<String>,
     pub confirm_discard: bool,
     pub open: bool,
+    /// Formatting applied to newly typed text.
+    pub typing: crate::rich::Style,
+    /// Last selection in the body editor, as char indices (start, end).
+    pub selection: (usize, usize),
+    /// Return keyboard focus to the body after a toolbar click.
+    pub refocus: bool,
 }
 
 pub enum Action {
@@ -341,7 +347,17 @@ impl App {
     pub fn open_composer(&mut self, draft: Draft) -> u64 {
         let id = self.next_composer;
         self.next_composer += 1;
-        self.composers.push(Composer { id, draft, show_bcc: false, error: None, confirm_discard: false, open: true });
+        self.composers.push(Composer {
+            id,
+            draft,
+            show_bcc: false,
+            error: None,
+            confirm_discard: false,
+            open: true,
+            typing: Default::default(),
+            selection: (0, 0),
+            refocus: false,
+        });
         id
     }
 

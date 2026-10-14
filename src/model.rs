@@ -169,7 +169,14 @@ pub struct Draft {
     pub cc: String,
     pub bcc: String,
     pub subject: String,
+    /// What the user typed; `body_styles` holds one style per character.
     pub body: String,
+    pub body_styles: Vec<crate::rich::Style>,
+    /// Send as plain text only (Outlook's Format Text > Plain Text).
+    pub plain_text: bool,
+    /// Quoted original for replies/forwards, kept apart from the editable body.
+    pub quote_text: String,
+    pub quote_html: Option<String>,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub attachments: Vec<std::path::PathBuf>,

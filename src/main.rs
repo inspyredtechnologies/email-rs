@@ -10,6 +10,7 @@ mod html;
 mod mime;
 mod model;
 mod oauth;
+mod rich;
 mod store;
 mod theme;
 mod ui;
