@@ -147,6 +147,8 @@ pub struct MessageBody {
     pub cc: String,
     pub date: i64,
     pub text: String,
+    /// Original HTML body (inline images embedded as data: URIs), if the message has one.
+    pub html: Option<String>,
     pub message_id: Option<String>,
     pub references: Vec<String>,
     pub reply_to: Option<String>,

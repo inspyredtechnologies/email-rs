@@ -86,6 +86,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     });
     ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, BORDER));
 
+    // HTML mail goes to the native web view, which is laid over the rest of the pane.
+    if let (Some(b), false) = (&body, app.html_unavailable) {
+        if let Some(html) = &b.html {
+            let (acct, folder) = app.current.clone().unwrap_or_default();
+            let key = (acct, folder, meta.uid);
+            if crate::html::has_remote_content(html) && !app.allow_remote.contains(&key) {
+                pictures_infobar(app, ui);
+            }
+            let rect = ui.available_rect_before_wrap();
+            ui.allocate_rect(rect, Sense::hover());
+            app.html_slot = Some(crate::app::HtmlSlot { rect, key, body: b.clone() });
+            return;
+        }
+    }
+
     egui::ScrollArea::vertical().id_salt(("reading", meta.uid)).auto_shrink(false).show(ui, |ui| {
         egui::Frame::NONE.inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
             match &body {
@@ -101,6 +116,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+}
+
+/// Outlook's privacy infobar for messages with blocked remote pictures.
+fn pictures_infobar(app: &mut App, ui: &mut Ui) {
+    let resp = egui::Frame::NONE
+        .fill(Color32::from_rgb(0xF4, 0xF4, 0xF4))
+        .inner_margin(egui::Margin::symmetric(18, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
+                        "Click here to download pictures. To help protect your privacy, \
+                         Outlook RS prevented automatic download of some pictures in this message.",
+                    )
+                    .small(),
+                )
+                .wrap(),
+            );
+        })
+        .response
+        .interact(Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.clicked() {
+        app.actions.push(Action::AllowRemoteContent);
+    }
+    ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, BORDER));
 }
 
 pub fn avatar(ui: &mut Ui, name: &str, size: f32) {

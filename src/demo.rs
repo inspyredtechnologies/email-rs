@@ -78,6 +78,7 @@ pub fn messages(now: i64) -> Vec<(String, MessageMeta, MessageBody)> {
                 to: meta.to.clone(),
                 date,
                 text: text.to_string(),
+                html: (i == 5).then(|| FEEDBACK_HTML.to_string()),
                 message_id: Some(format!("demo-{i}@contoso.example")),
                 attachments: if *has_att {
                     vec![crate::model::Attachment { name: "Q4 Offsite Agenda.txt".into(), data: b"9:00 Welcome\n10:00 Product\n".to_vec() }]
@@ -90,3 +91,26 @@ pub fn messages(now: i64) -> Vec<(String, MessageMeta, MessageBody)> {
         })
         .collect()
 }
+
+/// HTML demo message: a styled report with a table, and one remote image
+/// (blocked until "download pictures" is clicked).
+const FEEDBACK_HTML: &str = r#"<html><head><style>
+  .hero { background:#0072C6; color:#fff; padding:18px 22px; }
+  .hero h1 { margin:0; font-weight:300; font-size:24px; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; }
+  th, td { border-bottom:1px solid #e1e1e1; padding:8px 10px; text-align:left; }
+  th { background:#f3f3f3; font-weight:600; }
+  .up { color:#107C10; font-weight:600; } .down { color:#C4312B; font-weight:600; }
+</style></head><body>
+<div class="hero"><h1>Customer feedback &mdash; September</h1><div>Monthly summary for the product team</div></div>
+<p>Hi team, here are the top themes from 1,284 pieces of feedback this month:</p>
+<table>
+  <tr><th>Theme</th><th>Mentions</th><th>Trend</th></tr>
+  <tr><td>Faster search</td><td>412</td><td class="up">&#9650; 18%</td></tr>
+  <tr><td>Offline mode</td><td>305</td><td class="up">&#9650; 7%</td></tr>
+  <tr><td>Calendar sharing</td><td>221</td><td class="down">&#9660; 4%</td></tr>
+</table>
+<p><img src="https://example.com/feedback-chart.png" alt="[Chart: feedback by week]" width="480" height="160"></p>
+<p>Full report on the <a href="https://example.com/feedback">team site</a>. Questions? <a href="mailto:diego@contoso.example">Email Diego</a>.</p>
+<p style="color:#666;font-size:12px">Contoso Research &bull; You're receiving this because you're on the product team.</p>
+</body></html>"#;

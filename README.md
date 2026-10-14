@@ -14,6 +14,7 @@ cargo run --release -- --demo    # offline sample mailbox, no account needed
 
 - **Layout:** ribbon (File / Home / Send / Receive / Folder / View), folder pane with Favorites and unread counts, a three-line message list grouped by date (Today, Yesterday, weekday, Last Week…), reading pane, navigation bar, and status bar.
 - **Mail over IMAP/SMTP:** folder sync with SPECIAL-USE detection (Inbox, Sent Items, Deleted Items, Junk Email…), a local cache of the newest 500 messages per folder, previews for the newest 25, read/unread, flags, Move, Archive, and Delete (to Deleted Items, or permanent when already there).
+- **HTML mail:** rendered with WebView2 (built into Windows 10/11) in the reading pane. Scripts are disabled, and a Content-Security-Policy blocks remote pictures and tracking pixels until you click "Click here to download pictures". Embedded (`cid:`) images display inline. Links open in your browser, and `mailto:` links open a new message.
 - **Compose:** opens in its own window with From / To / Cc / Bcc / Subject and attachments. Reply, Reply All and Forward use Outlook's quoted-header format. Sent mail is saved to Sent Items, except on Gmail and Microsoft 365, which do that themselves.
 - **Accounts:** Add Account with presets for Outlook.com, Gmail, Yahoo, iCloud, Fastmail and AOL, plus a live connection test. Three sign-in methods: password, **Microsoft** (Outlook.com, Hotmail, Microsoft 365 / Exchange Online) and **Google**. The last two use OAuth 2.0 in your browser (XOAUTH2), so Outlook RS never sees your password. Passwords and refresh tokens are stored in Windows Credential Manager.
 - **Shortcuts:**
@@ -55,7 +56,7 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 
 ## Limitations
 
-- HTML mail is shown as plain text, and outgoing mail is plain text.
+- Outgoing mail is plain text.
 - Exchange is reached over IMAP/SMTP only, with no EWS or MAPI. On-premises Exchange works with the Password method if its admin has enabled IMAP.
 - Calendar, People and Tasks are placeholders.
 - No PST/OST import, drafts saving, rules, or IMAP IDLE (it polls every 10 minutes and on F9).
@@ -68,6 +69,7 @@ To build with your client IDs baked in, set `OUTLOOK_RS_MS_CLIENT_ID`, `OUTLOOK_
 | `src/app.rs` | UI state, action queue, keyboard shortcuts |
 | `src/ui/` | Ribbon, folder pane, list, reading pane, compose, account dialogs |
 | `src/mime.rs` | Message parsing, reply/forward building, outgoing MIME |
+| `src/html.rs`, `src/webview.rs` | HTML mail sanitizing (CSP, cid: images) and the WebView2 reading-pane view |
 | `src/oauth.rs` | Microsoft/Google OAuth: PKCE, loopback redirect, token refresh, XOAUTH2 |
 | `src/store.rs` | Cache in `%APPDATA%\OutlookRs\data`, Credential Manager passwords |
 

@@ -45,7 +45,8 @@ pub fn parse_meta(uid: u32, raw: &[u8]) -> MessageMeta {
     }
 }
 
-/// Plain-text rendering of a message body (HTML is converted to text).
+/// Parse a message for the reading pane: plain text (HTML converted when there's
+/// no text part), the original HTML when present, and attachments.
 pub fn parse_body(raw: &[u8]) -> MessageBody {
     let Some(msg) = MessageParser::default().parse(raw) else {
         return MessageBody { text: String::from_utf8_lossy(raw).into_owned(), ..Default::default() };
@@ -57,8 +58,24 @@ pub fn parse_body(raw: &[u8]) -> MessageBody {
             .map(|h| html2text::from_read(h.as_bytes(), 100).unwrap_or_else(|_| h.into_owned()))
             .unwrap_or_default(),
     };
+    // Only real HTML parts; mail-parser would otherwise synthesize HTML from text.
+    let mut html = msg.html_part(0).filter(|p| p.is_text_html()).and_then(|_| msg.body_html(0)).map(|h| h.into_owned());
+    let mut inline_used = Vec::new();
+    if let Some(h) = html.as_mut() {
+        let images: Vec<(String, String, Vec<u8>)> = msg
+            .attachments()
+            .filter_map(|p| {
+                let cid = p.content_id()?.trim_matches(['<', '>']).to_string();
+                let ct = p.content_type().map(|c| format!("{}/{}", c.ctype(), c.subtype().unwrap_or(""))).unwrap_or_default();
+                Some((cid, ct, p.contents().to_vec()))
+            })
+            .collect();
+        inline_used = crate::html::inline_cid_images(h, &images);
+    }
+    // Images shown inline in the HTML aren't listed as attachments, as in Outlook.
     let attachments = msg
         .attachments()
+        .filter(|p| html.is_none() || !p.content_id().is_some_and(|c| inline_used.iter().any(|u| u == c.trim_matches(['<', '>']))))
         .map(|p| Attachment {
             name: p.attachment_name().unwrap_or("attachment").to_string(),
             data: p.contents().to_vec(),
@@ -71,6 +88,7 @@ pub fn parse_body(raw: &[u8]) -> MessageBody {
         cc: format_address(msg.cc()),
         date: msg.date().map(|d| d.to_timestamp()).unwrap_or(0),
         text,
+        html,
         message_id: msg.message_id().map(str::to_string),
         references: msg
             .references()

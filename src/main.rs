@@ -6,12 +6,15 @@
 
 mod app;
 mod demo;
+mod html;
 mod mime;
 mod model;
 mod oauth;
 mod store;
 mod theme;
 mod ui;
+#[cfg(windows)]
+mod webview;
 mod worker;
 
 use std::path::{Path, PathBuf};

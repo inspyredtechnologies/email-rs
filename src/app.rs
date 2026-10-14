@@ -1,6 +1,6 @@
 ﻿//! Application state, the action queue the UI feeds, and worker event handling.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -85,6 +85,15 @@ pub enum Action {
     RemoveAccount(String),
     SaveAttachment(usize),
     Send(u64),
+    /// Load remote pictures for the selected message ("Click here to download pictures").
+    AllowRemoteContent,
+}
+
+/// Where the reading pane wants HTML drawn this frame.
+pub struct HtmlSlot {
+    pub rect: egui::Rect,
+    pub key: (String, String, u32),
+    pub body: Arc<MessageBody>,
 }
 
 pub struct Screenshot {
@@ -120,6 +129,13 @@ pub struct App {
     ctx: egui::Context,
     screenshot: Option<Screenshot>,
     frames: u64,
+    pub html_slot: Option<HtmlSlot>,
+    /// Messages whose remote pictures the user chose to download.
+    pub allow_remote: HashSet<(String, String, u32)>,
+    /// Set when the web view can't be created; HTML mail then falls back to text.
+    pub html_unavailable: bool,
+    #[cfg(windows)]
+    html_view: Option<crate::webview::HtmlView>,
 }
 
 impl App {
@@ -153,6 +169,11 @@ impl App {
             ctx: cc.egui_ctx.clone(),
             screenshot,
             frames: 0,
+            html_slot: None,
+            allow_remote: HashSet::new(),
+            html_unavailable: !cfg!(windows),
+            #[cfg(windows)]
+            html_view: None,
         };
 
         if demo_mode {
@@ -560,6 +581,11 @@ impl App {
                 Action::RemoveAccount(id) => self.remove_account(&id),
                 Action::SaveAttachment(i) => self.save_attachment(i),
                 Action::Send(id) => self.send_composer(id),
+                Action::AllowRemoteContent => {
+                    if let (Some((acct, folder)), Some(uid)) = (self.current.clone(), self.selected) {
+                        self.allow_remote.insert((acct, folder, uid));
+                    }
+                }
             }
         }
         self.composers.retain(|c| c.open);
@@ -624,6 +650,55 @@ impl App {
         }
     }
 
+    // ------------------------------------------------------------- HTML view
+
+    /// Place the native HTML view over the reading pane, or hide it when there's
+    /// no HTML to show or egui UI (menus, dialogs) would be drawn on top of it.
+    #[cfg(windows)]
+    fn sync_html_view(&mut self, frame: &eframe::Frame, ctx: &egui::Context) {
+        let slot = self.html_slot.take();
+        let covered = self.backstage
+            || self.alert.is_some()
+            || self.account_dialog.is_some()
+            || self.confirm_remove.is_some()
+            || egui::Popup::is_any_open(ctx);
+        match slot {
+            Some(slot) if !covered => {
+                if self.html_view.is_none() {
+                    match crate::webview::HtmlView::new(frame, ctx) {
+                        Ok(v) => self.html_view = Some(v),
+                        Err(e) => {
+                            self.html_unavailable = true;
+                            self.alert = Some(e);
+                            return;
+                        }
+                    }
+                }
+                let allow = self.allow_remote.contains(&slot.key);
+                let key = format!("{:?}", (&slot.key, allow));
+                let body = slot.body;
+                let view = self.html_view.as_mut().unwrap();
+                view.show(&key, || crate::html::prepare(body.html.as_deref().unwrap_or(""), allow), slot.rect, ctx.pixels_per_point());
+            }
+            _ => {
+                if let Some(v) = &mut self.html_view {
+                    v.hide();
+                }
+            }
+        }
+        let mailto = self.html_view.as_ref().map(|v| v.take_mailto()).unwrap_or_default();
+        for link in mailto {
+            let account_id = self.current.as_ref().map(|(a, _)| a.clone()).unwrap_or_default();
+            let to = link["mailto:".len()..].split('?').next().unwrap_or("").to_string();
+            self.open_composer(Draft { account_id, to, ..Default::default() });
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn sync_html_view(&mut self, _frame: &eframe::Frame, _ctx: &egui::Context) {
+        self.html_slot = None;
+    }
+
     // ------------------------------------------------------------ screenshot
 
     /// `--screenshot <file>`: render a few frames, save a PNG, and exit.
@@ -650,7 +725,7 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.process_events();
         self.handle_shortcuts(&ctx);
@@ -663,6 +738,7 @@ impl eframe::App for App {
         ui::compose::show_all(self, &ctx);
         ui::account::show(self, &ctx);
         ui::show_alert(self, &ctx);
+        self.sync_html_view(frame, &ctx);
 
         self.apply_actions();
         self.screenshot_logic(&ctx);
